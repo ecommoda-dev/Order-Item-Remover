@@ -1,20 +1,21 @@
 // ══════════════════════════════════════════════════════════════════
 // §HEADER
 // EcomModa — Order Item Remover Worker
-// Version: 1.0.0
+// Version: 1.1.0
 // Tier: 1 — Shopify order editing (removes an unfulfilled line item; irreversible
 //           in the sense that Shopify keeps no "undo" — the item can only be
-//           re-added manually afterward)
+//           re-added manually afterward). Never restocks — mandatory S1/reason
+//           metafield side effect on every removal (28-08-2026).
 // Cloudflare Worker ES Module
 // skills: ecommoda-worker-builder v1.0.0 · shopify-graphql-helper v1.0.0 ·
-//         ecommoda-order-lifecycle v1.1.0 · ecommoda-constants v1.2.0 (26-08-2026)
+//         ecommoda-order-lifecycle v1.1.0 · ecommoda-constants v1.2.0 (28-08-2026)
 // ══════════════════════════════════════════════════════════════════
 
 
 // ══════════════════════════════════════════════════════════════════
 // §CONSTANTS
 // ══════════════════════════════════════════════════════════════════
-const WORKER_VERSION = '1.0.0';
+const WORKER_VERSION = '1.1.0';
 const TOOL_NAME       = 'order_item_remover'; // ⚠️ REGISTER in ecommoda-constants §7
                                                 //    BEFORE first deploy — see README/handoff notes.
 const API_VERSION     = '2026-01';
@@ -24,6 +25,20 @@ const SHOP_DOMAIN_FALLBACK = '6c7e1a-53.myshopify.com'; // used only if env.SHOP
 // item removed by this tool — Ahmed's explicit decision (26-08-2026): online
 // pre-paid orders are blocked entirely, no auto-refund path is implemented.
 const ALLOWED_FINANCIAL_STATUS = new Set(['PENDING']);
+
+// This tool ONLY ever removes stock, never restocks it (Ahmed, 28-08-2026):
+// the warehouse uses it exclusively when the item is physically unavailable.
+// Enforced server-side in handleRemoveItem — any client-sent value is ignored.
+
+// S1 side effect on every removal — verbatim strings from ecommoda-order-lifecycle
+// state-machines.md §1. 'Pending Edit' is the exact state meaning "an item was
+// found unavailable during picking/packing" — matches this tool's purpose.
+const S1_PENDING_EDIT = 'Pending Edit';
+// Allowed SOURCE states for the Pending Edit transition (state-machines.md §1.4,
+// directly-confirmed rows — not the "inferred, ask Ahmed" ones). Re-writing the
+// same value (already Pending Edit) is treated as a no-op, not a transition.
+const S1_VALID_SOURCES_FOR_PENDING_EDIT = new Set(['Confirmed', 'Ready', S1_PENDING_EDIT]);
+const CANCEL_MANUAL_REASON_VALUE = 'عطلان';
 
 // ══════════════════════════════════════════════════════════════════
 // §CORS — Option B (write / destructive tool)
@@ -226,6 +241,7 @@ const ORDER_FIELDS = `
   closed
   displayFinancialStatus
   displayFulfillmentStatus
+  manualStatusMetafield: metafield(namespace: "custom", key: "manual_status") { value }
   customer { displayName phone }
   totalPriceSet { shopMoney { amount currencyCode } }
   lineItems(first: 50) {
@@ -286,6 +302,7 @@ function mapOrder(order) {
     name: order.name,
     displayFinancialStatus: order.displayFinancialStatus || '',
     displayFulfillmentStatus: order.displayFulfillmentStatus || '',
+    manualStatus: order.manualStatusMetafield?.value || null,
     totalPrice: moneyText(order.totalPriceSet),
     customerName: order.customer?.displayName || '',
     customerPhone: order.customer?.phone || '',
@@ -387,6 +404,55 @@ async function removeLineItem(env, token, { orderGid, lineItemGid, restock, noti
   return { calculatedOrderId, removedTitle: match.title, removedSku: match.sku, committedOrder, actions };
 }
 
+// ─── §SHOPIFY::updateOrderStatusMetafields ───
+// Side effect required on every removal (Ahmed, 28-08-2026):
+//   custom.manual_status        → 'Pending Edit'  (only if the transition is legal)
+//   custom.cancel_manual_reason → 'عطلان'          (always)
+// Metafield `type` is read from the LIVE definition each call — never hardcoded
+// — per shopify-graphql-helper: an exact-string type mismatch fails the whole
+// metafieldsSet call, including fields bundled with it.
+async function getMetafieldDefinitionTypes(env, token, keys) {
+  const data = await shopifyGQL(env, token,
+    `query MFDefs { metafieldDefinitions(first: 50, ownerType: ORDER, namespace: "custom") { nodes { key type { name } } } }`,
+    {}, 'metafieldDefinitions'
+  );
+  const nodes = data?.data?.metafieldDefinitions?.nodes || [];
+  const map = {};
+  for (const n of nodes) map[n.key] = n.type?.name;
+  const missing = keys.filter(k => !map[k]);
+  if (missing.length) throw new Error(`تعريف الميتافيلد غير موجود في شوبيفاي: ${missing.join(', ')} — أنشئه من Settings → Custom data → Orders أولاً`);
+  return map;
+}
+
+async function updateOrderStatusMetafields(env, token, { orderGid, previousS1 }) {
+  const defTypes = await getMetafieldDefinitionTypes(env, token, ['manual_status', 'cancel_manual_reason']);
+  const statusTransitionAllowed = previousS1 == null || S1_VALID_SOURCES_FOR_PENDING_EDIT.has(previousS1);
+
+  const metafields = [
+    { ownerId: orderGid, namespace: 'custom', key: 'cancel_manual_reason', type: defTypes.cancel_manual_reason, value: CANCEL_MANUAL_REASON_VALUE },
+  ];
+  if (statusTransitionAllowed) {
+    metafields.push({ ownerId: orderGid, namespace: 'custom', key: 'manual_status', type: defTypes.manual_status, value: S1_PENDING_EDIT });
+  }
+
+  const data = await shopifyGQL(env, token,
+    `mutation SetOrderStatusMetafields($metafields: [MetafieldsSetInput!]!) {
+       metafieldsSet(metafields: $metafields) { metafields { key value } userErrors { field message } }
+     }`,
+    { metafields }, 'metafieldsSet(itemRemoved)'
+  );
+  const result = data?.data?.metafieldsSet;
+  const errs = result?.userErrors || [];
+  if (errs.length) throw new Error('metafieldsSet: ' + errs.map(e => e.message).join(' | '));
+
+  const written = result?.metafields || [];
+  const reasonOk = written.some(m => m.key === 'cancel_manual_reason' && m.value === CANCEL_MANUAL_REASON_VALUE);
+  const statusOk = !statusTransitionAllowed || written.some(m => m.key === 'manual_status' && m.value === S1_PENDING_EDIT);
+  if (!reasonOk || !statusOk) throw new Error('metafieldsSet: شوبيفاي ما أكدتش كتابة قيم الحالة/السبب');
+
+  return { statusUpdated: statusTransitionAllowed, previousS1 };
+}
+
 // ══════════════════════════════════════════════════════════════════
 // §HANDLER
 // ══════════════════════════════════════════════════════════════════
@@ -406,7 +472,10 @@ async function handleRemoveItem(request, env) {
   const body = await request.json().catch(() => null);
   if (!body) return badRequest('Body غير صالح', request);
 
-  const { orderId, lineItemId, employee, restock = true, notifyCustomer = false, staffNote = '' } = body;
+  const { orderId, lineItemId, employee, notifyCustomer = false, staffNote = '' } = body;
+  // restock مفروضة false دايمًا من السيرفر — بغض النظر عن أي قيمة جاية من العميل
+  // (دفاع مزدوج مع تعطيل الشيك بوكس في الواجهة). قرار أحمد 28-08-2026.
+  const restock = false;
   if (!employee)   return badRequest('بيانات الموظف ناقصة — اعمل Login مرة أخرى', request);
   if (!orderId || !String(orderId).startsWith('gid://shopify/Order/'))       return badRequest('Order ID غير صالح', request);
   if (!lineItemId || !String(lineItemId).startsWith('gid://shopify/LineItem/')) return badRequest('Line Item ID غير صالح', request);
@@ -432,6 +501,30 @@ async function handleRemoveItem(request, env) {
       restock, notifyCustomer, staffNote: note,
     });
 
+    // ─── ميتافيلدات الحالة/السبب — side effect إلزامي على كل حذف (أحمد 28-08-2026) ───
+    // فشل الخطوة دي لا يُسقط نجاح حذف البند نفسه — العملية بالفعل اتنفذت على
+    // شوبيفاي ولا رجعة فيها؛ النتيجة تبقى 'warning' مش 'error' (3 حالات مش اتنين).
+    let metaOutcome = { statusUpdated: false, error: null };
+    try {
+      metaOutcome = await updateOrderStatusMetafields(env, token, { orderGid: orderId, previousS1: orderBefore.manualStatus });
+      result.actions.push(metaOutcome.statusUpdated
+        ? `تحديث الحالة إلى "${S1_PENDING_EDIT}" + سبب الإلغاء اليدوي إلى "${CANCEL_MANUAL_REASON_VALUE}"`
+        : `تحديث سبب الإلغاء اليدوي إلى "${CANCEL_MANUAL_REASON_VALUE}" فقط — تخطي تحديث الحالة (الانتقال من "${orderBefore.manualStatus || '—'}" إلى "${S1_PENDING_EDIT}" غير مسموح)`);
+    } catch (metaErr) {
+      metaOutcome.error = metaErr.message;
+      result.actions.push(`⚠️ تعذّر تحديث ميتافيلدات الحالة/السبب: ${metaErr.message}`);
+    }
+    const status = (metaOutcome.error || !metaOutcome.statusUpdated) ? 'warning' : 'success';
+
+    let message = `تم حذف "${target.title}" من الأوردر ${orderBefore.name}`;
+    if (status === 'warning') {
+      message += metaOutcome.error
+        ? ` — ⚠️ تعذّر تحديث الحالة/السبب: ${metaOutcome.error}`
+        : ` — ⚠️ لم يتم تحديث الحالة (الانتقال من "${orderBefore.manualStatus || '—'}" غير مسموح) — تم تحديث سبب الإلغاء فقط`;
+    } else {
+      message += ` — تم تحديث الحالة إلى "${S1_PENDING_EDIT}" وسبب الإلغاء إلى "${CANCEL_MANUAL_REASON_VALUE}"`;
+    }
+
     let logged = true;
     try {
       await writeLog(env.DB, {
@@ -439,18 +532,33 @@ async function handleRemoveItem(request, env) {
         orderId: orderBefore.numericId, orderName: orderBefore.name,
         sku: target.sku, productTitle: target.title,
         delta: -target.unfulfilledQuantity,
-        notes: `تم حذف "${target.title}" من الأوردر — استرجاع مخزون: ${restock ? 'نعم' : 'لا'}`,
+        notes: `تم حذف "${target.title}" من الأوردر — بدون استرجاع مخزون (معطّل دائمًا)`,
         extra: {
           orderGid: orderId, lineItemGid: lineItemId,
-          restock: !!restock, notifyCustomer: !!notifyCustomer,
+          restock: false, notifyCustomer: !!notifyCustomer,
           actions: result.actions, calculatedOrderId: result.calculatedOrderId,
+          result: status, statusUpdated: metaOutcome.statusUpdated, statusUpdateError: metaOutcome.error,
         },
       });
     } catch (e) { logged = false; }
 
+    if (metaOutcome.statusUpdated) {
+      try {
+        await writeLog(env.DB, {
+          tool: 'metafields_change', type: 'update', employee,
+          orderId: orderBefore.numericId, orderName: orderBefore.name,
+          notes: `S1: ${orderBefore.manualStatus || '—'} → ${S1_PENDING_EDIT} (حذف منتج "${target.title}" عبر Order Item Remover)`,
+          extra: {
+            field: 'custom.manual_status', previousValue: orderBefore.manualStatus || null,
+            newValue: S1_PENDING_EDIT, sourceTool: TOOL_NAME,
+          },
+        });
+      } catch (e) { /* الحذف نفسه اتسجل فعلاً — فشل السجل الثانوي ده مش حرج */ }
+    }
+
     return json({
-      ok: true, status: 'success', logged,
-      message: `تم حذف "${target.title}" من الأوردر ${orderBefore.name}`,
+      ok: true, status, logged,
+      message,
       order: result.committedOrder, removedItem: target, actions: result.actions,
     }, 200, request);
 
@@ -485,6 +593,11 @@ async function handleDiag(request, env) {
         checks.scopeWarning = 'ناقص write_order_edits و/أو read_order_edits — الأداة هتفشل في remove_item حتى لو كل حاجة تانية تمام. أضف الصلاحية من Shopify Partner Dashboard وأعد تثبيت التطبيق.';
       }
     } catch (e) { checks.accessScopesError = e.message; }
+
+    try {
+      const defTypes = await getMetafieldDefinitionTypes(env, token, ['manual_status', 'cancel_manual_reason']);
+      checks.metafieldDefs = defTypes;
+    } catch (e) { checks.metafieldDefsError = e.message; }
   } catch (e) { checks.oauth = `FAILED: ${e.message}`; }
 
   try { await env.DB.prepare('SELECT 1').first(); checks.d1 = 'ok'; }
