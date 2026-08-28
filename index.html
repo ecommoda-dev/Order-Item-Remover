@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
-<!-- skills: ecommoda-html-builder v1.0.0 · ecommoda-order-lifecycle v1.1.0 · ecommoda-constants v1.2.0 (26-08-2026) -->
+<!-- skills: ecommoda-html-builder v1.0.0 · ecommoda-order-lifecycle v1.1.0 · ecommoda-constants v1.2.0 (28-08-2026) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>حذف منتج من الأوردر — EcomModa</title>
@@ -115,12 +115,26 @@ body { font-family: var(--font-body); background: var(--bg); color: var(--text-p
 .about-sec-body table { width:100%; border-collapse:collapse; font-size:12px; }
 .about-sec-body th, .about-sec-body td { padding:6px 8px; border-bottom:1px solid var(--border); text-align:right; }
 
+/* ── Confirm Remove Modal (eco-modal shell + info rows + gate checkboxes) ── */
+.confirm-info-row { display:flex; justify-content:space-between; align-items:center; padding:9px 0; border-bottom:1px solid var(--border); font-size:13px; }
+.confirm-info-row:last-of-type { border-bottom:none; }
+.confirm-info-label { color:var(--text-secondary); font-weight:600; }
+.confirm-info-value { font-weight:700; color:var(--text-primary); }
+.confirm-check-group { display:flex; flex-direction:column; gap:10px; margin-top:14px; }
+.confirm-check-item { display:flex; align-items:flex-start; gap:9px; padding:11px 12px; border:1.5px solid var(--border-strong); border-radius:var(--radius-sm); font-size:13px; font-weight:600; line-height:1.6; cursor:pointer; transition:all .15s; background:var(--surface-2); }
+.confirm-check-item:has(input:checked) { border-color:var(--green); background:var(--green-light); color:#15803d; }
+.confirm-check-item input[type=checkbox] { width:17px; height:17px; margin-top:1px; accent-color:var(--green); cursor:pointer; flex-shrink:0; }
+.btn-confirm-ok { padding:9px 18px; background:var(--red); color:#fff; border:none; border-radius:var(--radius-sm); font-family:inherit; font-size:13px; font-weight:700; cursor:pointer; transition:background .15s, opacity .15s; }
+.btn-confirm-ok:hover:not(:disabled) { background:#b91c1c; }
+.btn-confirm-ok:disabled { opacity:.45; cursor:not-allowed; }
+
 /* ── Toast ──────────────────────────────────────────────────── */
 .toast-container { position:fixed; bottom:20px; right:20px; z-index:9999; display:flex; flex-direction:column; gap:8px; }
 .toast { padding:10px 16px; border-radius:var(--radius-sm); font-size:13px; font-weight:600; color:#fff; box-shadow:0 4px 12px rgba(0,0,0,.2); animation:toastIn .3s ease; max-width:320px; }
 @keyframes toastIn { from{transform:translateX(100%);opacity:0;} to{transform:none;opacity:1;} }
 .toast-success { background:var(--green); }
 .toast-error { background:var(--red); }
+.toast-warning { background:var(--amber); }
 .toast-neutral { background:#1a1d27; }
 
 /* ── Order link ─────────────────────────────────────────────── */
@@ -207,6 +221,9 @@ body { font-family: var(--font-body); background: var(--bg); color: var(--text-p
 .remove-opts { display:flex; gap:16px; flex-wrap:wrap; align-items:center; margin:10px 0 4px; font-size:12px; color:var(--text-secondary); }
 .remove-opts label { display:flex; align-items:center; gap:6px; cursor:pointer; }
 .remove-opts input[type=checkbox] { width:15px; height:15px; accent-color:var(--accent); cursor:pointer; }
+.remove-opts label.opt-locked { cursor:not-allowed; opacity:.75; }
+.remove-opts label.opt-locked input[type=checkbox] { cursor:not-allowed; accent-color:var(--red); }
+.opt-locked-note { font-size:10px; color:var(--red); font-weight:700; }
 
 .item-card { display:flex; align-items:center; gap:12px; border:1px solid var(--border); border-radius:var(--radius-sm); padding:10px 12px; margin-bottom:8px; background:var(--surface-2); }
 .item-thumb { width:48px; height:48px; border-radius:6px; background:var(--surface); border:1px solid var(--border); object-fit:cover; flex-shrink:0; }
@@ -314,7 +331,16 @@ body { font-family: var(--font-body); background: var(--bg); color: var(--text-p
     <div class="eco-modal-hdr"><span>📋 سجل التحديثات</span><button class="modal-close-x" onclick="closeChangelog()">✕</button></div>
     <div class="eco-modal-body">
       <div class="cl-version-block">
-        <div class="cl-version-row"><span class="cl-ver-badge" id="clLatestVerBadge"></span><span class="cl-ver-date">26-08-2026</span></div>
+        <div class="cl-version-row"><span class="cl-ver-badge" id="clLatestVerBadge"></span><span class="cl-ver-date">28-08-2026</span></div>
+        <ul class="cl-items">
+          <li class="cl-item"><span class="cl-tag change">تغيير</span><span>استرجاع المخزون التلقائي بقى معطّل دائمًا وغير قابل للتعديل — الأداة مخصّصة فقط للمنتجات غير المتوفرة بالمخزن</span></li>
+          <li class="cl-item"><span class="cl-tag new">جديد</span><span>عند كل حذف: تحديث ميتافيلد الحالة <code>custom.manual_status</code> إلى "Pending Edit" و<code>custom.cancel_manual_reason</code> إلى "عطلان" (لو الانتقال مسموح)</span></li>
+          <li class="cl-item"><span class="cl-tag change">تغيير</span><span>إعادة تصميم نافذة تأكيد الحذف بشِل <code>eco-modal</code> مع تأكيدين إلزاميين (مراجعة المخزون + قطع الفاتورة)</span></li>
+          <li class="cl-item"><span class="cl-tag change">تغيير</span><span>بعد تنفيذ الحذف، الأداة ترجع تلقائيًا لوضعها الافتراضي (مربع البحث فاضي)</span></li>
+        </ul>
+      </div>
+      <div class="cl-version-block">
+        <div class="cl-version-row"><span class="cl-ver-badge old">v1.0.0</span><span class="cl-ver-date">26-08-2026</span></div>
         <ul class="cl-items">
           <li class="cl-item"><span class="cl-tag new">جديد</span><span>إطلاق الأداة — بحث بالأوردر، عرض المنتجات Unfulfilled، حذف منتج مع استرجاع اختياري للمخزون</span></li>
         </ul>
@@ -339,24 +365,35 @@ body { font-family: var(--font-body); background: var(--bg); color: var(--text-p
             <li>الموظف يدخل رقم الأوردر ويضغط بحث.</li>
             <li>الأداة تجيب الأوردر وتعرض بس المنتجات اللي حالتها Unfulfilled بالكامل.</li>
             <li>لو الأوردر مش مؤهل (متسدد أونلاين / ملغي / مقفول) — بانر أحمر واضح بالسبب، ومفيش حذف متاح.</li>
-            <li>الموظف يختار منتج ويضغط "حذف من الأوردر" — تأكيد قبل التنفيذ.</li>
-            <li>الأداة تنفّذ Order Editing (Shopify) لإزالة البند بالكامل، مع استرجاع اختياري للمخزون.</li>
-            <li>النتيجة تتسجّل في سجل العمليات — نجاح / تحذير / فشل.</li>
+            <li>الموظف يختار منتج ويضغط "حذف من الأوردر" — نافذة تأكيد بتاعتين إلزاميتين: مراجعة المخزون + قطع الفاتورة.</li>
+            <li>الأداة تنفّذ Order Editing (Shopify) لإزالة البند بالكامل — <strong>بدون استرجاع مخزون أبدًا</strong>.</li>
+            <li>لو الانتقال مسموح: تحديث <code>custom.manual_status</code> إلى "Pending Edit" و<code>custom.cancel_manual_reason</code> إلى "عطلان".</li>
+            <li>النتيجة تظهر كـ toast وتتسجّل في سجل العمليات — نجاح / تحذير / فشل — والأداة ترجع لوضعها الافتراضي (مربع بحث فاضي).</li>
           </ol>
 
           <h4>الـ Endpoints الرئيسية</h4>
           <table>
             <tr><th>action</th><th>الوصف</th></tr>
             <tr><td><code>lookup_order</code></td><td>البحث عن أوردر بالاسم وجلب منتجاته Unfulfilled</td></tr>
-            <tr><td><code>remove_item</code></td><td>حذف بند من الأوردر (Order Editing API — quantity → 0)</td></tr>
+            <tr><td><code>remove_item</code></td><td>حذف بند من الأوردر (Order Editing API — quantity → 0، بدون استرجاع مخزون) + تحديث ميتافيلدات الحالة/السبب</td></tr>
             <tr><td><code>get_logs / get_logs_count / get_logs_export</code></td><td>سجل العمليات — صفحات + تصدير XLSX</td></tr>
-            <tr><td><code>diag</code></td><td>فحص ذاتي: الصلاحيات (write_order_edits) و D1 والاتصال</td></tr>
+            <tr><td><code>diag</code></td><td>فحص ذاتي: الصلاحيات (write_order_edits) و تعريفات الميتافيلدز و D1 والاتصال</td></tr>
+          </table>
+
+          <h4>⚙️ إجراءات كل حذف</h4>
+          <table>
+            <tr><th>الإجراء</th><th>التفاصيل</th></tr>
+            <tr><td>حذف البند</td><td>Order Editing API — <code>orderEditSetQuantity(quantity: 0)</code> ثم Commit</td></tr>
+            <tr><td>استرجاع المخزون</td><td><strong>معطّل دائمًا</strong> — <code>restock: false</code> مفروضة من السيرفر بغض النظر عن أي مدخل</td></tr>
+            <tr><td>تحديث الحالة</td><td><code>custom.manual_status → Pending Edit</code> — بس لو الحالة الحالية <code>Confirmed</code> أو <code>Ready</code> (أو <code>Pending Edit</code> بالفعل)، وإلا يتم تخطيها مع تحذير</td></tr>
+            <tr><td>تحديث سبب الإلغاء</td><td><code>custom.cancel_manual_reason → عطلان</code> — دايمًا، بغض النظر عن حالة الأوردر</td></tr>
           </table>
 
           <h4>⚠️ قيود مهمة</h4>
           <ul>
             <li>الأداة تشتغل بس على أوردرات <code>financial status = PENDING</code> (يعني COD غير متسدد بعد) — الأوردرات المتسددة أونلاين ممنوع الحذف منها من هنا (قرار: منع كامل، لا استرجاع تلقائي مطبَّق).</li>
             <li>بس البنود اللي كميتها كلها Unfulfilled (مفيش أي جزء اتشحن) هي القابلة للحذف الكامل.</li>
+            <li>استرجاع المخزون معطّل دائمًا — الأداة مخصّصة فقط للمنتجات المكتشف إنها غير متوفرة بالمخزن وقت التجهيز.</li>
             <li>الحذف مش بيرجع تاني تلقائيًا — لو غلط، لازم يتضاف المنتج يدويًا للأوردر من شوبيفاي.</li>
           </ul>
         </div>
@@ -382,9 +419,33 @@ body { font-family: var(--font-body); background: var(--bg); color: var(--text-p
           <ul>
             <li>الحذف بيتم عبر <code>orderEditSetQuantity(quantity: 0)</code> — مفيش mutation مباشرة لحذف بند في Shopify.</li>
             <li>محتاج صلاحية <code>write_order_edits</code> + <code>read_order_edits</code> على تطبيق شوبيفاي — مختلفة عن <code>write_orders</code> العادية. استخدم زرار "فحص النظام" في الإعدادات للتأكد.</li>
+            <li><code>restock</code> مفروضة <code>false</code> من الواجهة **و**من الـ Worker (دفاع مزدوج) — الشيك بوكس في الواجهة معطّل ومقفول دايمًا.</li>
+            <li>تحديث <code>custom.manual_status</code> بيتحقق من صحة الانتقال قبل الكتابة (<code>ecommoda-order-lifecycle</code> §1.4) — بيتخطى الكتابة بأمان لو الحالة الحالية مش <code>Confirmed</code>/<code>Ready</code>، بدل ما يكتب انتقال غير مسموح.</li>
+            <li>نوع الميتافيلد (<code>type</code>) بيتقرا ديناميكيًا من تعريف الحقل في شوبيفاي وقت التنفيذ — مش hardcoded.</li>
           </ul>
         </div>
       </details>
+    </div>
+  </div>
+</div>
+
+<!-- ══ Confirm Remove Modal ══ -->
+<div class="eco-overlay" id="confirmRemoveOverlay" onclick="if(event.target===this)closeConfirmRemove()">
+  <div class="eco-modal" style="max-width:520px;">
+    <div class="eco-modal-hdr"><span>⚠️ تأكيد حذف المنتج</span><button class="modal-close-x" onclick="closeConfirmRemove()">✕</button></div>
+    <div class="eco-modal-body">
+      <div class="confirm-info-row"><span class="confirm-info-label">المنتج</span><span class="confirm-info-value" id="crmProductName">—</span></div>
+      <div class="confirm-info-row"><span class="confirm-info-label">SKU</span><span class="confirm-info-value" id="crmSku">—</span></div>
+      <div class="confirm-info-row"><span class="confirm-info-label">الأوردر</span><span class="confirm-info-value" id="crmOrderName">—</span></div>
+      <div class="banner banner-amber" style="margin-top:10px;">⚠️ هذا الإجراء لا يُلغى تلقائيًا — لو غلط، المنتج لازم يتضاف يدويًا من شوبيفاي. المخزون <strong>لن</strong> يُسترجع تلقائيًا.</div>
+      <div class="confirm-check-group">
+        <label class="confirm-check-item"><input type="checkbox" id="crmCheck1" onchange="updateConfirmRemoveState()"> نعم، احذف المنتج — أنا راجعت كويس وهذا المنتج غير موجود في المخزن</label>
+        <label class="confirm-check-item"><input type="checkbox" id="crmCheck2" onchange="updateConfirmRemoveState()"> نعم، قمت بقطع الفاتورة لهذا الأوردر</label>
+      </div>
+    </div>
+    <div class="settings-modal-ftr">
+      <button class="btn-modal-cancel" onclick="closeConfirmRemove()">إلغاء</button>
+      <button class="btn-confirm-ok" id="crmOkBtn" disabled>🗑️ تأكيد الحذف</button>
     </div>
   </div>
 </div>
@@ -490,7 +551,7 @@ body { font-family: var(--font-body); background: var(--bg); color: var(--text-p
 // ══════════════════════════════════════════════════════════════
 // §CONFIG
 // ══════════════════════════════════════════════════════════════
-const TOOL_VERSION = 'v1.0.0';
+const TOOL_VERSION = 'v1.1.0';
 const LS_URL       = 'order_item_remover_worker_url';
 const LS_SECRET    = 'order_item_remover_worker_secret';
 const LS_ADMIN_URL = 'admin_worker_url';
@@ -588,6 +649,12 @@ async function runDiag() {
       lines.push(`${c.hasReadOrderEdits ? '✅' : '❌'} صلاحية read_order_edits`);
     }
     if (c.scopeWarning) lines.push(`⚠️ ${c.scopeWarning}`);
+    if (c.metafieldDefs) {
+      lines.push(`✅ تعريف manual_status: ${c.metafieldDefs.manual_status || '—'}`);
+      lines.push(`✅ تعريف cancel_manual_reason: ${c.metafieldDefs.cancel_manual_reason || '—'}`);
+    } else if (c.metafieldDefsError) {
+      lines.push(`❌ تعريفات الميتافيلدز: ${c.metafieldDefsError}`);
+    }
     lines.push(`${c.originAllowed ? '✅' : '❌'} الأصل (Origin) مسموح: ${c.origin}`);
     for (const [k, v] of Object.entries(c.envKeys || {})) lines.push(`${v.startsWith('MISSING') ? '❌' : '✅'} ${k}: ${v}`);
     box.innerHTML = lines.join('<br>');
@@ -843,7 +910,7 @@ function renderOrder(order) {
   }
 
   html += `<div class="remove-opts">
-    <label><input type="checkbox" id="optRestock" checked> استرجاع المخزون تلقائيًا عند الحذف</label>
+    <label class="opt-locked"><input type="checkbox" id="optRestock" disabled> استرجاع المخزون تلقائيًا عند الحذف <span class="opt-locked-note">🔒 معطّل دائمًا — الأداة للمنتجات غير المتوفرة بالمخزن فقط</span></label>
     <label><input type="checkbox" id="optNotify"> إشعار العميل بالتعديل</label>
   </div>`;
 
@@ -865,36 +932,70 @@ function renderOrder(order) {
   area.innerHTML = html;
 }
 
-// ─── §TOOL-JS::confirmRemove ───
+// ─── §TOOL-JS::confirmRemove — eco-modal gate (2 mandatory checkboxes) ───
+let pendingRemoveLineItemId = null;
 function confirmRemove(lineItemId) {
   const item = currentOrder?.unfulfilledItems.find(li => li.lineItemId === lineItemId);
   if (!item || !currentOrder) return;
-  const ok = confirm(`تأكيد حذف "${item.title}" من الأوردر ${currentOrder.name}؟\n\nهذا الإجراء لا يُلغى تلقائيًا — المنتج لازم يتضاف يدويًا لو غلط.`);
-  if (!ok) return;
-  doRemoveItem(lineItemId);
+  pendingRemoveLineItemId = lineItemId;
+  document.getElementById('crmProductName').textContent = item.title + (item.variantTitle ? ' — ' + item.variantTitle : '');
+  document.getElementById('crmSku').textContent = item.sku || '—';
+  document.getElementById('crmOrderName').textContent = currentOrder.name;
+  document.getElementById('crmCheck1').checked = false;
+  document.getElementById('crmCheck2').checked = false;
+  updateConfirmRemoveState();
+  document.getElementById('confirmRemoveOverlay').classList.add('open');
 }
+function closeConfirmRemove() {
+  document.getElementById('confirmRemoveOverlay').classList.remove('open');
+  pendingRemoveLineItemId = null;
+}
+function updateConfirmRemoveState() {
+  const ok = document.getElementById('crmCheck1').checked && document.getElementById('crmCheck2').checked;
+  document.getElementById('crmOkBtn').disabled = !ok;
+}
+document.getElementById('crmOkBtn').addEventListener('click', () => {
+  if (document.getElementById('crmOkBtn').disabled || !pendingRemoveLineItemId) return;
+  const lineItemId = pendingRemoveLineItemId;
+  closeConfirmRemove();
+  doRemoveItem(lineItemId);
+});
 
 // ─── §TOOL-JS::doRemoveItem ───
 async function doRemoveItem(lineItemId) {
   if (!currentOrder || !currentEmployee) { showToast('اعمل تسجيل دخول أولاً', 'error'); return; }
-  const restock = document.getElementById('optRestock')?.checked ?? true;
   const notifyCustomer = document.getElementById('optNotify')?.checked ?? false;
 
   showToast('جارٍ تنفيذ الحذف...', 'neutral', 4000);
   try {
     const res = await apiPost('remove_item', {
       orderId: currentOrder.id, lineItemId,
-      employee: currentEmployee.username, restock, notifyCustomer,
+      employee: currentEmployee.username, notifyCustomer,
     });
     const status = res.status || (res.ok ? 'success' : 'error');
-    renderRemoveResult(status, res);
-    if (status === 'success') { showToast(res.message || 'تم الحذف ✓', 'success'); playBeep('success'); }
-    else { showToast(res.error || 'حصل خطأ', 'error'); playBeep('error'); }
-    if (status === 'success') await lookupOrder(); // refresh list
+    if (res.ok) {
+      // Item removal itself executed (success أو warning على تحديث الحالة/السبب فقط)
+      showToast(res.message || 'تم الحذف ✓', status === 'warning' ? 'warning' : 'success', status === 'warning' ? 6000 : 3000);
+      playBeep('success');
+      resetRemoveTabToDefault();
+    } else {
+      renderRemoveResult('error', res);
+      showToast(res.error || 'حصل خطأ', 'error'); playBeep('error');
+    }
   } catch (err) {
     renderRemoveResult('error', { error: err.message });
     showToast(err.message, 'error'); playBeep('error');
   }
+}
+
+// ─── §TOOL-JS::resetRemoveTabToDefault ───
+function resetRemoveTabToDefault() {
+  currentOrder = null;
+  const input = document.getElementById('orderInput');
+  input.value = '';
+  toggleSearchActiveState(input);
+  document.getElementById('orderResultArea').innerHTML = '';
+  input.focus();
 }
 
 function renderRemoveResult(status, res) {
