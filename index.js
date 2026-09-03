@@ -1,7 +1,7 @@
 // ══════════════════════════════════════════════════════════════════
 // §HEADER
 // EcomModa — Order Item Remover Worker
-// Version: 1.1.0
+// Version: 1.2.0
 // Tier: 1 — Shopify order editing (removes an unfulfilled line item; irreversible
 //           in the sense that Shopify keeps no "undo" — the item can only be
 //           re-added manually afterward). Never restocks — mandatory S1/reason
@@ -9,13 +9,20 @@
 // Cloudflare Worker ES Module
 // skills: ecommoda-worker-builder v1.0.0 · shopify-graphql-helper v1.0.0 ·
 //         ecommoda-order-lifecycle v1.1.0 · ecommoda-constants v1.2.0 (28-08-2026)
+//
+// CHANGELOG v1.2.0:
+//   - 🟠 R6 — حارس `WORKER_SECRET` الغايب قبل فحص المصادقة. من غيره
+//     `Bearer ${env.WORKER_SECRET}` بيتقيّم للنص الحرفي "Bearer undefined"
+//     لو السيكرت اتنسي أو النسخة اتنشرت بدون Promote — فأي طلب بالرأس ده
+//     كان بيعدّي المصادقة. الرد بقى 500 برسالة صريحة + step:'env'.
+//     (مراجعة 03-09-2026 · R6)
 // ══════════════════════════════════════════════════════════════════
 
 
 // ══════════════════════════════════════════════════════════════════
 // §CONSTANTS
 // ══════════════════════════════════════════════════════════════════
-const WORKER_VERSION = '1.1.0';
+const WORKER_VERSION = '1.2.0';
 const TOOL_NAME       = 'order_item_remover'; // ⚠️ REGISTER in ecommoda-constants §7
                                                 //    BEFORE first deploy — see README/handoff notes.
 const API_VERSION     = '2026-01';
@@ -612,6 +619,18 @@ async function handleDiag(request, env) {
 export default {
   async fetch(request, env) {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: getCORS(request) });
+
+    // ── R6: حارس WORKER_SECRET الغايب — **قبل** أي مقارنة ─────────
+    // من غير السطور دي: لو السيكرت اتنسي أو النسخة اتنشرت بدون Promote،
+    // يبقى env.WORKER_SECRET === undefined، والقالب بيتقيّم للنص الحرفي
+    // "Bearer undefined" — فأي طلب بالرأس ده **بيعدّي المصادقة**.
+    // (مراجعة 03-09-2026 · R6 · نفس حارس logistics-control-center-worker)
+    if (!env.WORKER_SECRET) {
+      return json({
+        error: 'WORKER_SECRET غير مضبوط على الـ Worker — أضفه من Settings → Variables ثم اعمل Promote',
+        step:  'env',
+      }, 500, request);
+    }
 
     const auth = request.headers.get('Authorization');
     if (!auth || auth !== `Bearer ${env.WORKER_SECRET}`) return json({ ok: false, error: 'Unauthorized' }, 401, request);
