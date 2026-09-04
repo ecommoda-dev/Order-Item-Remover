@@ -297,7 +297,7 @@ body { font-family: var(--font-body); background: var(--bg); color: var(--text-p
   </div>
   <div class="app-header-btns">
     <button class="hbtn active-user" id="activeUserBtn" onclick="doLogout()" style="display:none;">👤 —</button>
-    <button class="hbtn warn-btn" id="verMismatchBtn" style="display:none;" onclick="showVersionMismatch()">⚠️ نسخة الـ Worker مختلفة</button>
+    <button class="hbtn warn-btn" id="verMismatchBtn" style="display:none;" onclick="showVersionMismatch()">⚠️ الـ Worker نسخة قديمة</button>
     <button class="hbtn" id="aboutBtn" onclick="openAbout()">ℹ️ عن الأداة</button>
     <button class="hbtn ver-btn" id="verBtn" onclick="openChangelog()"></button>
     <button class="hbtn" id="settingsBtn" onclick="openSettings()">⚙️ الإعدادات</button>
@@ -551,7 +551,17 @@ body { font-family: var(--font-body); background: var(--bg); color: var(--text-p
 // ══════════════════════════════════════════════════════════════
 // §CONFIG
 // ══════════════════════════════════════════════════════════════
-const TOOL_VERSION = 'v1.1.0';
+const TOOL_VERSION = 'v1.2.0';
+
+// ⚠️ أقل نسخة Worker الواجهة دي بتشتغل معاها — **مالهاش أي علاقة بـ
+//    TOOL_VERSION** ومتزامنهمش. بترتفع بس لما عقد الـ Worker يتغيّر بشكل
+//    الواجهة بتعتمد عليه.
+//
+// R14 (v1.2.0): الحارس القديم كان `workerVersion !== TOOL_VERSION` — تطابق
+//    حرفي بين `'1.1.0'` (اللي الـ Worker بيرجّعه) و`'v1.1.0'` (بادئة الواجهة)،
+//    فكان **بيفشل دايمًا** وزرار «نسخة الـ Worker مختلفة» ظاهر على طول
+//    وبقى ضوضاء الناس بتتجاهلها. بقى حد أدنى رقمي زي باقي الأدوات.
+const MIN_WORKER_VERSION = '1.2.0';
 const LS_URL       = 'order_item_remover_worker_url';
 const LS_SECRET    = 'order_item_remover_worker_secret';
 const LS_ADMIN_URL = 'admin_worker_url';
@@ -670,7 +680,13 @@ function openChangelog() { document.getElementById('changelogOverlay').classList
 function closeChangelog() { document.getElementById('changelogOverlay').classList.remove('open'); }
 function openAbout() { document.getElementById('aboutOverlay').classList.add('open'); }
 function closeAbout() { document.getElementById('aboutOverlay').classList.remove('open'); }
-function showVersionMismatch() { showToast(`نسخة الـ Worker (${workerVersion}) مختلفة عن نسخة الواجهة (${TOOL_VERSION}) — راجع الـ Deployment`, 'error', 5000); }
+function showVersionMismatch() {
+  showToast(
+    `الـ Worker نسخته ${workerVersion} والواجهة محتاجة ${MIN_WORKER_VERSION} على الأقل — ` +
+    `التحديث على ما يبدو ما نزلش. راجع Deployments و Promote في كلاودفلير.`,
+    'error', 7000
+  );
+}
 
 function showToast(msg, type = 'neutral', duration = 3000) {
   const t = document.createElement('div');
@@ -691,13 +707,24 @@ function formatDateForExport(iso) {
 }
 
 let workerVersion = null;
+// مقارنة رقمية — بتشيل بادئة الـ 'v' وبتقارن جزء جزء.
+function cmpVersion(a, b) {
+  const pa = String(a).replace(/^v/, '').split('.').map(Number);
+  const pb = String(b).replace(/^v/, '').split('.').map(Number);
+  for (let i = 0; i < 3; i++) {
+    const d = (pa[i] || 0) - (pb[i] || 0);
+    if (d) return d;
+  }
+  return 0;
+}
 async function checkWorkerVersion() {
   try {
     const d = await apiGet('get_config');
     workerVersion = d.version || null;
+    const stale = workerVersion && cmpVersion(workerVersion, MIN_WORKER_VERSION) < 0;
     const btn = document.getElementById('verMismatchBtn');
-    if (btn) btn.style.display = (workerVersion && workerVersion !== TOOL_VERSION) ? '' : 'none';
-  } catch {}
+    if (btn) btn.style.display = stale ? '' : 'none';
+  } catch { /* الإعدادات ممكن تكون لسه مش مضبوطة */ }
 }
 
 // ══════════════════════════════════════════════════════════════

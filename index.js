@@ -1,7 +1,7 @@
 // ══════════════════════════════════════════════════════════════════
 // §HEADER
 // EcomModa — Order Item Remover Worker
-// Version: 1.1.0
+// Version: 1.2.0
 // Tier: 1 — Shopify order editing (removes an unfulfilled line item; irreversible
 //           in the sense that Shopify keeps no "undo" — the item can only be
 //           re-added manually afterward). Never restocks — mandatory S1/reason
@@ -9,17 +9,32 @@
 // Cloudflare Worker ES Module
 // skills: ecommoda-worker-builder v1.0.0 · shopify-graphql-helper v1.0.0 ·
 //         ecommoda-order-lifecycle v1.1.0 · ecommoda-constants v1.2.0 (28-08-2026)
+//
+// CHANGELOG v1.2.0:
+//   - 🟡 R14 — `assertEnv` اتضاف (الأداة كانت الوحيدة من الأربعة من غيره)
+//     وبيتنادى قبل أي نداء شوبيفاي في `lookup_order` و`remove_item`.
+//     و`?action=diag` بيبلّغ نتيجته كنص بدل ما يرمي.
+//   - 🟡 R14 — الـ `TODO` المضلّل في `ALLOWED_ORIGINS` اتشال: الرابط الفعلي
+//     موجود بالفعل والـ Origin بيتبعت domain-level، فمفيش تعديل مطلوب.
+//   - 🟡 R14 — `SHOP_DOMAIN_FALLBACK` اتشال — ثابت **ميّت** (صفر استخدام)،
+//     وهو بقايا من نمط الـ fallback الصامت اللي التلات أدوات التانية
+//     مافيهاش منه ولا واحد. سيبه كان بيدي فخ لأي حد يوصّله بعدين.
+//     (مراجعة 03-09-2026 · R14)
+//   - 🟠 R6 — حارس `WORKER_SECRET` الغايب قبل فحص المصادقة. من غيره
+//     `Bearer ${env.WORKER_SECRET}` بيتقيّم للنص الحرفي "Bearer undefined"
+//     لو السيكرت اتنسي أو النسخة اتنشرت بدون Promote — فأي طلب بالرأس ده
+//     كان بيعدّي المصادقة. الرد بقى 500 برسالة صريحة + step:'env'.
+//     (مراجعة 03-09-2026 · R6)
 // ══════════════════════════════════════════════════════════════════
 
 
 // ══════════════════════════════════════════════════════════════════
 // §CONSTANTS
 // ══════════════════════════════════════════════════════════════════
-const WORKER_VERSION = '1.1.0';
+const WORKER_VERSION = '1.2.0';
 const TOOL_NAME       = 'order_item_remover'; // ⚠️ REGISTER in ecommoda-constants §7
                                                 //    BEFORE first deploy — see README/handoff notes.
 const API_VERSION     = '2026-01';
-const SHOP_DOMAIN_FALLBACK = '6c7e1a-53.myshopify.com'; // used only if env.SHOP_DOMAIN missing, for error text
 
 // Only orders that are still fully unpaid (COD not yet captured) may have an
 // item removed by this tool — Ahmed's explicit decision (26-08-2026): online
@@ -43,9 +58,11 @@ const CANCEL_MANUAL_REASON_VALUE = 'عطلان';
 // ══════════════════════════════════════════════════════════════════
 // §CORS — Option B (write / destructive tool)
 // ══════════════════════════════════════════════════════════════════
+// الواجهة منشورة على https://ecommoda-dev.github.io/Order-Item-Remover/ والـ
+// Origin بيتبعت **domain-level** (بدون مسار)، فالقيمة دي كاملة. أي دومين
+// جديد يتضاف هنا صراحةً — مفيش wildcard في أداة كتابة/هدّامة.
 const ALLOWED_ORIGINS = [
   'https://ecommoda-dev.github.io',
-  // TODO: أضف الـ GitHub Pages URL النهائي للأداة هنا لو مختلف
 ];
 
 function getCORS(request) {
@@ -62,6 +79,31 @@ function getCORS(request) {
 // ══════════════════════════════════════════════════════════════════
 // §HELPERS
 // ══════════════════════════════════════════════════════════════════
+
+// ─── §HELPERS::assertEnv ───
+// R14 (v1.2.0) — الأداة كانت الوحيدة من الأربعة من غير `assertEnv`.
+// متغيّر ناقص لازم يوقف العملية **برسالة باسمه**: `SHOP_DOMAIN` الناقص
+// بيخلّي النداء يروح على `https://undefined/...` ويرجّع رسالة fetch مبهمة
+// مالهاش أي علاقة بالسبب.
+const ENV_REQUIRED = {
+  shopify: ['SHOP_DOMAIN', 'CLIENT_ID', 'CLIENT_SECRET'],
+};
+
+function assertEnv(env, ...groups) {
+  const missing = [];
+  for (const g of groups) {
+    for (const key of (ENV_REQUIRED[g] || [])) {
+      if (env[key] === undefined || env[key] === null || String(env[key]).trim() === '') missing.push(key);
+    }
+  }
+  if (!env.DB) missing.push('DB (D1 binding)');
+  if (missing.length) {
+    throw new Error(
+      `متغيرات ناقصة في الـ Worker: ${missing.join('، ')} — ضِفها من ` +
+      `Dashboard → Settings → Variables ثم Promote النسخة. (شغّل ?action=diag)`
+    );
+  }
+}
 function json(body, status = 200, request = null) {
   const cors = request ? getCORS(request) : { 'Access-Control-Allow-Origin': ALLOWED_ORIGINS[0] };
   return new Response(JSON.stringify(body), {
@@ -457,6 +499,7 @@ async function updateOrderStatusMetafields(env, token, { orderGid, previousS1 })
 // §HANDLER
 // ══════════════════════════════════════════════════════════════════
 async function handleLookupOrder(request, env) {
+  assertEnv(env, 'shopify');
   const url = new URL(request.url);
   const orderName = normalizeOrderName(url.searchParams.get('order') || '');
   if (!orderName) return badRequest('اكتب رقم الأوردر أولاً', request);
@@ -469,6 +512,7 @@ async function handleLookupOrder(request, env) {
 }
 
 async function handleRemoveItem(request, env) {
+  assertEnv(env, 'shopify');
   const body = await request.json().catch(() => null);
   if (!body) return badRequest('Body غير صالح', request);
 
@@ -577,6 +621,10 @@ async function handleRemoveItem(request, env) {
 
 async function handleDiag(request, env) {
   const checks = {};
+  // ⚠️ `diag` **بيبلّغ ومابيرميش** — الغرض منه إنه يشتغل بالظبط لما حاجة
+  //    ناقصة، فـ `assertEnv` هنا بتترمي جوّه try وبترجع كنص.
+  try { assertEnv(env, 'shopify'); checks.envAssert = 'ok'; }
+  catch (e) { checks.envAssert = `FAILED: ${e.message}`; }
   checks.envKeys = Object.fromEntries(
     ['SHOP_DOMAIN', 'CLIENT_ID', 'CLIENT_SECRET', 'WORKER_SECRET'].map(k => [k, env[k] ? `set (${String(env[k]).length} chars)` : 'MISSING'])
   );
@@ -612,6 +660,18 @@ async function handleDiag(request, env) {
 export default {
   async fetch(request, env) {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: getCORS(request) });
+
+    // ── R6: حارس WORKER_SECRET الغايب — **قبل** أي مقارنة ─────────
+    // من غير السطور دي: لو السيكرت اتنسي أو النسخة اتنشرت بدون Promote،
+    // يبقى env.WORKER_SECRET === undefined، والقالب بيتقيّم للنص الحرفي
+    // "Bearer undefined" — فأي طلب بالرأس ده **بيعدّي المصادقة**.
+    // (مراجعة 03-09-2026 · R6 · نفس حارس logistics-control-center-worker)
+    if (!env.WORKER_SECRET) {
+      return json({
+        error: 'WORKER_SECRET غير مضبوط على الـ Worker — أضفه من Settings → Variables ثم اعمل Promote',
+        step:  'env',
+      }, 500, request);
+    }
 
     const auth = request.headers.get('Authorization');
     if (!auth || auth !== `Bearer ${env.WORKER_SECRET}`) return json({ ok: false, error: 'Unauthorized' }, 401, request);
