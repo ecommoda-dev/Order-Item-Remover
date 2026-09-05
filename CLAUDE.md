@@ -45,7 +45,7 @@ type  : remove_item · remove_failed · login · logout
 
 ```
 Bindings : DB → ecommoda-dev-logs                     ← لسه محتاج تحقق بعد الربط
-Secrets  : WORKER_SECRET · CLIENT_ID · CLIENT_SECRET   ← لسه محتاجين إضافة يدوية + Promote
+Secrets  : WORKER_SECRET · CLIENT_ID · CLIENT_SECRET   ← WORKER_SECRET = قيمة مجموعة warehouse_ops (اتوحّدت واتجرّبت 05-09-2026)
 Vars     : SHOP_DOMAIN                                 ← من [vars] في wrangler.toml — بيتطبّق مع Workers Builds
 Build watch paths : * (الافتراضي — لسه ما اتضيّقتش)
 compatibility_date: 2026-09-03                         ← اتحرّك 03-09-2026 بعد فحص الأعلام (R12)
@@ -166,15 +166,10 @@ compatibility_date: 2026-09-03                         ← اتحرّك 03-09-20
 | ecommoda-html-builder | v1.0.0 |
 | shopify-graphql-helper | v1.0.0 |
 | ecommoda-order-lifecycle | v1.1.0 |
-| ecommoda-constants | v1.5.2 |
+| ecommoda-constants | v1.6.0 |
 
 آخر مطابقة: 05-09-2026 · `index.js` v1.3.0 · `index.html` v1.3.0
 🔴 معلّقة: — لا شيء
-
-> ⏳ **بند مجموعات السر (§6) لسه ما اتكتبش في المهارة نفسها.** الكود هنا اتنفّذ
-> على القرار (سر واحد لمجموعة `warehouse_ops`)، والتوثيق في `ecommoda-constants`
-> §6 + §5b + §11 بند ١٤ مستني إصدار المهارة `v1.6.0` في جلسة منفصلة. لما ينزل،
-> الصف اللي فوق يتحرّك لـ `v1.6.0`.
 
 ## مسائل مفتوحة
 
