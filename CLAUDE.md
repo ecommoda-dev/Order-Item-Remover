@@ -1,8 +1,10 @@
 # حذف منتج من الأوردر (`Order-Item-Remover`)
 
+![version](https://img.shields.io/badge/version-v1.3.0-blue)
+
 **بتعمل إيه:** حذف منتج واحد لسه Unfulfilled بالكامل من أوردر COD غير مسدد، بدل إلغاء الأوردر كله.
 **مين بيستخدمها:** خدمة العملاء / إدارة الأوردرات
-**الإصدار:** Worker `v1.2.0` · الواجهة `v1.2.0` · `MIN_WORKER_VERSION = 1.2.0`
+**الإصدار:** Worker `v1.3.0` · الواجهة `v1.3.0` · `MIN_WORKER_VERSION = 1.3.0`
 
 ## الروابط
 
@@ -19,7 +21,7 @@
 | `lookup_order` | البحث عن أوردر بالاسم + جلب منتجاته Unfulfilled |
 | `remove_item` | حذف بند من الأوردر (Order Editing API — quantity → 0، بدون استرجاع مخزون أبدًا) + تحديث `custom.manual_status` (لو الانتقال مسموح) و`custom.cancel_manual_reason` |
 | `check_employee` / `register_pin` / `verify_employee` / `log_logout` / `get_employees` | Universal D1 Auth |
-| `get_logs` / `get_logs_count` / `get_logs_export` | سجل العمليات |
+| `get_logs` / `get_logs_count` / `get_logs_export` | سجل العمليات — فلترة server-side بقوايم (`employees` · `types` CSV) + `dateFrom`/`dateTo`. التصدير بيرجّع `cap`/`total`/`truncated` |
 | `diag` | فحص ذاتي: OAuth · صلاحيات write_order_edits/read_order_edits · D1 · Origin |
 | `get_config` | نسخة الـ Worker (لمقارنتها بنسخة الواجهة) |
 
@@ -48,6 +50,13 @@ Vars     : SHOP_DOMAIN                                 ← من [vars] في wran
 Build watch paths : * (الافتراضي — لسه ما اتضيّقتش)
 compatibility_date: 2026-09-03                         ← اتحرّك 03-09-2026 بعد فحص الأعلام (R12)
 ```
+> 🔗 **`WORKER_SECRET` مشترك — مجموعة `warehouse_ops`.** القيمة **واحدة**
+> في `order-printer-worker` و`orders-packing-checker-worker` و
+> `order-item-remover-worker` (`ecommoda-constants` §6 · مجموعات السر).
+> **متغيّرهاش في أداة واحدة** — التغيير بيكسر الباقي. التدوير بيمسّ التلاتة
+> مع بعض + Promote للتلاتة + حقل السر في الهب.
+> `employees-admin-panel-worker` **مستثنى صراحةً** — أداة إدارية وسرها فريد للأبد.
+> البصمة القصيرة في `?action=diag` بتثبت إن التلاتة على نفس القيمة (الطول لوحده مابيثبتش).
 
 
 ## `compatibility_date` — اتحرّكت 03-09-2026 (R12)
@@ -121,6 +130,29 @@ compatibility_date: 2026-09-03                         ← اتحرّك 03-09-20
 - **`assertEnv` بيتنادى قبل أي نداء شوبيفاي** (من v1.2.0) في `lookup_order`
   و`remove_item`. و`?action=diag` **بيبلّغ نتيجته كنص مابيرميش** — الغرض منه
   إنه يشتغل بالظبط لما حاجة ناقصة.
+- 🔗 **`WORKER_SECRET` مشترك مع `order-printer-worker` و`orders-packing-checker-worker`**
+  (مجموعة `warehouse_ops` — `ecommoda-constants` §6). **متغيّرهوش هنا لوحده** —
+  التغيير بيكسر الأداتين التانيين والهب. و`?action=diag` بيعرض **بصمة** السر
+  (٨ خانات hex من SHA-256) — لازم تطابق البصمة في الأداتين التانيين. الطول
+  لوحده مابيثبتش حاجة: سرّين مختلفين بنفس الطول شكلهم واحد.
+- **`getAccessToken` متكاش من v1.3.0** — و`invalidateAccessToken()` بتتنادى من
+  `shopifyGQL` على **401**. متلغيش الكاش عشان «الأداة بتتصرّف غريب» — الفرع
+  الصح هو الـ 401 وهو موجود. والكاش في ذاكرة الـ isolate بس، مش KV ومش Cache API.
+- **`token` في `shopifyGQL` بارامتر بيتعاد إسناده جوّه فرع الـ 401** — متخليهوش
+  `const`، الفرع بيقع بصمت في وضع non-strict أو بيرمي في strict.
+- **`LS_SECRET` هو المفتاح الوحيد في `localStorage` من v1.3.0** — `LS_URL`
+  و`LS_ADMIN_URL` اتشالوا (Standards #28 · §5b). `WORKER_URL` ثابت في `§CONFIG`،
+  وفيه بلوك `cleanupLegacyConfig()` بيمسح المفتاحين القدام من متصفحات كانت
+  شغّالة على النسخة القديمة. **⚠️ `LS_SECRET` مش في قايمة المسح** — لو اتحط
+  فيها، كل موظف هيترمي على شاشة الإعدادات بعد أول تحديث.
+- **تصدير السجل بيبلّغ عن الاقتطاع** — الرد فيه `cap`/`total`/`truncated`
+  والواجهة بتعرض توست. **ممنوع** ترجّع للقص الصامت. ونوع التوست `'warning'`
+  مش `'warn'` — الأداة معرّفة `.toast-warning` بس، وأي اسم تاني بيدي توست
+  **بلا خلفية** (بيبان أبيض على أبيض).
+- **`MIN_WORKER_VERSION` بقى `1.3.0` وده مقصود** — الواجهة بقت بتقرا حقول جديدة
+  فعلاً (`cap`/`total`/`truncated`)، وWorker أقدم بيرجّع رد ناقص **من غير خطأ**
+  فالبانر مايظهرش والقصّ يرجع صامت. ده الاستثناء المشروع لقاعدة Standards #29
+  (تغيير شفاف للواجهة **مايرفعش** الحد الأدنى — راجع `Order-Printer` v2.2.0).
 
 ## استرجاع النسخ القديمة
 
@@ -130,16 +162,32 @@ compatibility_date: 2026-09-03                         ← اتحرّك 03-09-20
 
 | المهارة | الإصدار وقت آخر تعديل |
 |---|---|
-| ecommoda-worker-builder | v2.0.0 (جزئيًا — assertEnv + حارس WORKER_SECRET من v1.2.0) |
+| ecommoda-worker-builder | v2.0.0 (كاملة من v1.3.0 — assertEnv · حارس WORKER_SECRET · كاش التوكن · `§SHARED` الموحّدة) |
 | ecommoda-html-builder | v1.0.0 |
 | shopify-graphql-helper | v1.0.0 |
 | ecommoda-order-lifecycle | v1.1.0 |
-| ecommoda-constants | v1.2.0 |
+| ecommoda-constants | v1.5.2 |
 
-آخر مطابقة: 03-09-2026 · `index.js` v1.2.0 · `index.html` v1.2.0
+آخر مطابقة: 05-09-2026 · `index.js` v1.3.0 · `index.html` v1.3.0
 🔴 معلّقة: — لا شيء
 
+> ⏳ **بند مجموعات السر (§6) لسه ما اتكتبش في المهارة نفسها.** الكود هنا اتنفّذ
+> على القرار (سر واحد لمجموعة `warehouse_ops`)، والتوثيق في `ecommoda-constants`
+> §6 + §5b + §11 بند ١٤ مستني إصدار المهارة `v1.6.0` في جلسة منفصلة. لما ينزل،
+> الصف اللي فوق يتحرّك لـ `v1.6.0`.
+
 ## مسائل مفتوحة
+
+### ✅ اتقفلت في v1.3.0 (المرحلة ٠ + ٠ب — تحضير Warehouse Operations Center)
+
+- ~~`getAccessToken` من غير كاش~~ — كاش الـ isolate من `Order-Printer` v2.2.0 + فرع 401.
+- ~~`§SHARED` متأخرة (مفيش `buildLogFilterSQL` ولا `logParamsFrom` ولا فلتر تاريخ)~~ — اتوحّدت.
+- ~~`getLogsExport` بتقص في السكوت~~ — بترجّع `cap`/`total`/`truncated` + تحذير في الواجهة.
+- ~~`WORKER_URL` في `localStorage` + حقل إعدادات~~ — ثابت في `§CONFIG`.
+- ~~`ADMIN_WORKER_URL` إعداد ميّت~~ — اتشال بالكامل (كان بيتخزّن وبيتعرض وما بيتقريش ولا مرة).
+- ~~سر فردي بيخلّي الهب محتاج حقل لكل Worker~~ — انضمّت لمجموعة `warehouse_ops`.
+- ~~الـ Changelog في الواجهة: بادج «آخر نسخة» ديناميكي فوق محتوى 28-08، ومفيش
+  إدخال لـ `v1.2.0` خالص~~ — الإدخالات اتضافت والبلوك القديم اتسمّى `v1.1.0`.
 
 ### ✅ اتقفلت في v1.2.0 (مراجعة الكود 03-09-2026)
 
