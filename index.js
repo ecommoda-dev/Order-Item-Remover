@@ -31,7 +31,7 @@
 // ══════════════════════════════════════════════════════════════════
 // §CONSTANTS
 // ══════════════════════════════════════════════════════════════════
-const WORKER_VERSION = '1.2.0';
+const WORKER_VERSION = '1.3.0';
 const TOOL_NAME       = 'order_item_remover'; // ⚠️ REGISTER in ecommoda-constants §7
                                                 //    BEFORE first deploy — see README/handoff notes.
 const API_VERSION     = '2026-01';
@@ -104,6 +104,20 @@ function assertEnv(env, ...groups) {
     );
   }
 }
+
+// ─── §HELPERS::secretFingerprint — بصمة قصيرة للسر ───
+// الغرض: التأكد إن كل أعضاء مجموعة `warehouse_ops` شايلين **نفس** القيمة.
+// الطول لوحده مش كافي — سرّين مختلفين بنفس الطول شكلهم واحد في diag.
+// ⚠️ ٨ خانات hex من SHA-256 لسر عشوائي ٣٢ بايت مش قابلة لاسترجاع القيمة.
+//    وبتكشف بالظبط الحالتين اللي بتوقّعوا الناس:
+//    ① عضو لسه على السر القديم   ② السر اتغيّر والـ Promote ما اتعملش
+async function secretFingerprint(secret) {
+  if (!secret) return null;
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(secret));
+  return [...new Uint8Array(buf)].slice(0, 4)
+    .map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
 function json(body, status = 200, request = null) {
   const cors = request ? getCORS(request) : { 'Access-Control-Allow-Origin': ALLOWED_ORIGINS[0] };
   return new Response(JSON.stringify(body), {
@@ -182,35 +196,101 @@ async function writeLog(db, entry) {
   ).run();
 }
 
-async function getLogs(db, { tool = null, employee = null, type = null, search = null, limit = 100, offset = 0 } = {}) {
-  let sql = "SELECT * FROM logs WHERE type NOT IN ('login','logout')";
+const LOG_EXPORT_MAX = 2000;   // سقف التصدير — بيرجع للواجهة كـ `cap`
+
+/**
+ * بنّاء شرط الفلترة الموحّد للسجل — التلات دوال تحته بتستخدمه، فمفيش SQL
+ * مكرر يتعتّق في واحدة منهم ويسيب التانية.
+ *
+ * ⚠️ dateFrom/dateTo بيتقارنوا بـ substr(timestamp,1,10) — يعني **UTC**،
+ * والعرض بتوقيت القاهرة (UTC+3). فرق التلات ساعات ممكن يحط عملية بعد ٩ مساءً
+ * بتوقيت القاهرة في يوم UTC اللي بعده. مقبول لفلتر بالأيام — **بس مكتوب**.
+ * login/logout مستثنيين في SQL دايمًا — مش client-side.
+ */
+function buildLogFilterSQL(select, {
+  tool      = null,
+  employee  = null, employees = null,
+  type      = null, types     = null,
+  search    = null,
+  dateFrom  = null, dateTo    = null,
+} = {}) {
+  let sql = `${select} FROM logs WHERE type NOT IN ('login','logout')`;
   const b = [];
-  if (tool)     { sql += ' AND tool = ?';     b.push(tool); }
-  if (employee) { sql += ' AND employee = ?'; b.push(employee); }
-  if (type)     { sql += ' AND type = ?';     b.push(type); }
-  if (search)   { sql += ' AND (order_name LIKE ? OR notes LIKE ?)'; b.push(`%${search}%`, `%${search}%`); }
-  sql += ' ORDER BY timestamp DESC LIMIT ? OFFSET ?';
-  b.push(Math.min(limit, 100), offset);
-  return (await db.prepare(sql).bind(...b).all()).results;
+
+  const emps = Array.isArray(employees) && employees.length ? employees : (employee ? [employee] : []);
+  const typs = Array.isArray(types)     && types.length     ? types     : (type     ? [type]     : []);
+
+  if (tool) { sql += ' AND tool = ?'; b.push(tool); }
+  if (emps.length) {
+    sql += ` AND employee IN (${emps.map(() => '?').join(',')})`; b.push(...emps);
+  }
+  if (typs.length) {
+    sql += ` AND type IN (${typs.map(() => '?').join(',')})`; b.push(...typs);
+  }
+  if (search) {
+    sql += ' AND (order_name LIKE ? OR notes LIKE ?)';
+    b.push(`%${search}%`, `%${search}%`);
+  }
+  if (dateFrom) { sql += ' AND substr(timestamp, 1, 10) >= ?'; b.push(dateFrom); }
+  if (dateTo)   { sql += ' AND substr(timestamp, 1, 10) <= ?'; b.push(dateTo); }
+
+  return { sql, b };
 }
-async function getLogsCount(db, { tool = null, employee = null, search = null } = {}) {
-  let sql = "SELECT COUNT(*) as total FROM logs WHERE type NOT IN ('login','logout')";
-  const b = [];
-  if (tool)     { sql += ' AND tool = ?';     b.push(tool); }
-  if (employee) { sql += ' AND employee = ?'; b.push(employee); }
-  if (search)   { sql += ' AND (order_name LIKE ? OR notes LIKE ?)'; b.push(`%${search}%`, `%${search}%`); }
+
+/**
+ * Fetch logs from D1 with server-side filtering + pagination.
+ * Max limit per page: 100 (enforced server-side).
+ * ⚠️ Do NOT use this for XLSX export — use getLogsExport() instead.
+ */
+async function getLogs(db, { limit = 100, offset = 0, ...filters } = {}) {
+  const { sql, b } = buildLogFilterSQL('SELECT *', filters);
+  const q = sql + ' ORDER BY timestamp DESC LIMIT ? OFFSET ?';
+  return (await db.prepare(q)
+    .bind(...b, Math.min(limit, 100), Math.max(offset, 0)).all()).results;
+}
+
+/**
+ * Count total matching log rows.
+ * Call in parallel with getLogs() (pagination UI) — and with getLogsExport().
+ */
+async function getLogsCount(db, filters = {}) {
+  const { sql, b } = buildLogFilterSQL('SELECT COUNT(*) as total', filters);
   const row = await db.prepare(sql).bind(...b).first();
   return row?.total ?? 0;
 }
-async function getLogsExport(db, { tool = null, employee = null, search = null } = {}) {
-  let sql = "SELECT * FROM logs WHERE type NOT IN ('login','logout')";
-  const b = [];
-  if (tool)     { sql += ' AND tool = ?';     b.push(tool); }
-  if (employee) { sql += ' AND employee = ?'; b.push(employee); }
-  if (search)   { sql += ' AND (order_name LIKE ? OR notes LIKE ?)'; b.push(`%${search}%`, `%${search}%`); }
-  sql += ' ORDER BY timestamp DESC LIMIT 2000';
-  return (await db.prepare(sql).bind(...b).all()).results;
+
+/**
+ * Fetch all matching logs for XLSX export — up to LOG_EXPORT_MAX rows.
+ * ⚠️ الدالة دي **بتقص في السكوت** بطبيعتها — الـ endpoint لازم يرجّع
+ * `cap` و`total` و`truncated` كمان.
+ */
+async function getLogsExport(db, filters = {}) {
+  const { sql, b } = buildLogFilterSQL('SELECT *', filters);
+  const q = sql + ' ORDER BY timestamp DESC LIMIT ?';
+  return (await db.prepare(q).bind(...b, LOG_EXPORT_MAX).all()).results;
 }
+
+/**
+ * بيقرا فلاتر السجل من الـ query string — CSV للقوايم
+ * (employees=ahmed,sara · types=remove_item,remove_failed).
+ * الاسم المفرد لسه مقبول للتوافق الرجعي.
+ */
+function logParamsFrom(url, tool) {
+  const csv = (k) => (url.searchParams.get(k) || '')
+    .split(',').map(s => s.trim()).filter(Boolean);
+  const employees = csv('employees'), types = csv('types');
+  return {
+    tool,
+    employees: employees.length ? employees : null,
+    employee:  url.searchParams.get('employee') || null,
+    types:     types.length ? types : null,
+    type:      url.searchParams.get('type')     || null,
+    search:    url.searchParams.get('search')   || null,
+    dateFrom:  url.searchParams.get('dateFrom') || null,
+    dateTo:    url.searchParams.get('dateTo')   || null,
+  };
+}
+
 // ══════════════════════════════════════════════════════════════════
 // END §SHARED
 // ══════════════════════════════════════════════════════════════════
@@ -218,20 +298,74 @@ async function getLogsExport(db, { tool = null, employee = null, search = null }
 // ══════════════════════════════════════════════════════════════════
 // §SHOPIFY
 // ══════════════════════════════════════════════════════════════════
-async function getAccessToken(env) {
+// ─── §SHOPIFY::getAccessToken — كاش في ذاكرة الـ isolate (v1.3.0 · منقولة من Order-Printer v2.2.0 · R15) ───
+// قبل كده كل نداء على الأداة كان بياخد توكن جديد من شوبيفاي. الأثر النهارده
+// محدود (الأداة قليلة الاستخدام)، **بس الهب بيغيّر الحساب**: «عطلان» هيبقى بضغطة
+// من جدول التغليف، وكل الـ Workers بتتشارك bucket واحد للـ rate limit عند شوبيفاي.
+//
+// الكاش هنا **في ذاكرة الـ isolate بس** — مش KV ومش Cache API:
+//   - مفيش binding جديد ومفيش تغيير في wrangler.toml
+//   - التوكن عمره ما بيتكتب على أي تخزين دائم ولا بيخرج بره الـ isolate
+//   - كلاودفلير ممكن تشغّل أكتر من isolate تحت الحمل، فالنتيجة «نداء أو تلاتة»
+//     بدل واحد لكل طلب — مش نداء واحد مضمون رياضيًا، وده كافي تمامًا للغرض
+//
+// ⚠️ `_tokenInFlight` مش زيادة: من غيرها النداءات اللي بيوصلوا **مع بعض** لنفس
+// الـ isolate هيلاقوا الكاش فاضي كلهم في نفس اللحظة ويطلبوا توكن كل واحد لوحده —
+// يعني نفس المشكلة جوّه isolate واحد. الوعد المشترك بيخلّيهم يستنّوا أول نداء
+// بدل ما يكرّروه.
+let _tokenCache    = null;   // { token, expiresAt }
+let _tokenInFlight = null;   // Promise<string> — نداء شغّال دلوقتي
+
+const TOKEN_SAFETY_MS       = 5 * 60 * 1000;    // بنسيب هامش قبل الانتهاء الحقيقي
+const TOKEN_FALLBACK_TTL_MS = 60 * 60 * 1000;   // لو شوبيفاي ما بعتتش expires_in
+
+// بيتنادى من shopifyGQL على 401 — توكن ملغي مايفضلش في الكاش لحد ما TTL يخلص
+function invalidateAccessToken() {
+  _tokenCache    = null;
+  _tokenInFlight = null;
+}
+
+async function fetchAccessToken(env) {
   const resp = await fetch(`https://${env.SHOP_DOMAIN}/admin/oauth/access_token`, {
-    method: 'POST',
+    method:  'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      client_id: env.CLIENT_ID,
+    body:    JSON.stringify({
+      client_id:     env.CLIENT_ID,
       client_secret: env.CLIENT_SECRET,
-      grant_type: 'client_credentials',
+      grant_type:    'client_credentials',
     }),
   });
   if (!resp.ok) throw new Error(`OAuth failed: ${resp.status}`);
   const data = await resp.json();
   if (!data.access_token) throw new Error('No access_token in OAuth response');
-  return data.access_token;
+
+  const ttlMs = Number.isFinite(data.expires_in) && data.expires_in > 0
+    ? data.expires_in * 1000
+    : TOKEN_FALLBACK_TTL_MS;
+
+  return {
+    token:     data.access_token,
+    // Math.max عشان توكن قصير العمر (أقل من الهامش) مايبقاش منتهي وهو لسه جديد
+    expiresAt: Date.now() + Math.max(ttlMs - TOKEN_SAFETY_MS, 30 * 1000),
+  };
+}
+
+async function getAccessToken(env) {
+  if (_tokenCache && _tokenCache.expiresAt > Date.now()) return _tokenCache.token;
+  if (_tokenInFlight) return _tokenInFlight;
+
+  _tokenInFlight = (async () => {
+    const fresh = await fetchAccessToken(env);
+    _tokenCache = fresh;
+    return fresh.token;
+  })();
+
+  try {
+    return await _tokenInFlight;
+  } finally {
+    // بيتصفّر في الحالتين — نجح (الكاش اتملى) أو فشل (المحاولة الجاية تعيد)
+    _tokenInFlight = null;
+  }
 }
 
 // ⚠️ الإصدار الكامل من shopify-graphql-helper Step 1 — بترمي على HTTP status
@@ -240,6 +374,8 @@ async function getAccessToken(env) {
 async function shopifyGQL(env, token, query, variables = {}, opName = 'shopify') {
   const MAX_ATTEMPTS = 3;
   let lastErr = null;
+  let tokenRefreshed = false;   // v1.3.0 — مرة واحدة بس، مش لوب
+
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     let resp, text;
     try {
@@ -254,6 +390,22 @@ async function shopifyGQL(env, token, query, variables = {}, opName = 'shopify')
       if (attempt < MAX_ATTEMPTS) { await new Promise(r => setTimeout(r, 400 * attempt)); continue; }
       throw lastErr;
     }
+    // ⚠️ 401 ليه فرع خاص من v1.3.0 لأن التوكن بقى متكاش — من غير ده توكن ملغي
+    // بيفضل في الكاش لحد ما الـ TTL يخلص، وكل نداء في الفترة دي بيفشل والأداة
+    // تبان واقعة. بنلغي الكاش، نجيب توكن جديد، ونعيد **مرة واحدة** — لو رد 401
+    // تاني يبقى المشكلة في CLIENT_ID/CLIENT_SECRET أو الصلاحيات، مش في توكن بايت.
+    if (resp.status === 401 && !tokenRefreshed && attempt < MAX_ATTEMPTS) {
+      tokenRefreshed = true;
+      invalidateAccessToken();
+      lastErr = new Error(`${opName}: Shopify HTTP 401 — ${text.slice(0, 180)}`);
+      try {
+        token = await getAccessToken(env);
+        continue;
+      } catch (e) {
+        throw new Error(`${opName}: Shopify 401 وتجديد التوكن فشل — ${e.message}`);
+      }
+    }
+
     if (!resp.ok) {
       const retriable = resp.status === 429 || resp.status >= 500;
       lastErr = new Error(`${opName}: Shopify HTTP ${resp.status} — ${text.slice(0, 180)}`);
@@ -628,6 +780,10 @@ async function handleDiag(request, env) {
   checks.envKeys = Object.fromEntries(
     ['SHOP_DOMAIN', 'CLIENT_ID', 'CLIENT_SECRET', 'WORKER_SECRET'].map(k => [k, env[k] ? `set (${String(env[k]).length} chars)` : 'MISSING'])
   );
+  // بصمة السر — لازم تطابق باقي أعضاء مجموعة `warehouse_ops`
+  // (order-printer-worker · orders-packing-checker-worker). اختلافها = المجموعة مكسورة.
+  checks.secretFingerprint = await secretFingerprint(env.WORKER_SECRET);
+  checks.secretGroup       = 'warehouse_ops';
   try {
     const token = await getAccessToken(env);
     checks.oauth = 'ok';
@@ -731,30 +887,29 @@ export default {
 
       // ─── §LOG-ENDPOINTS ───────────────────────────────────
       if (action === 'get_logs') {
-        const entries = await getLogs(env.DB, {
-          tool: TOOL_NAME,
-          employee: url.searchParams.get('employee') || null,
-          search:   url.searchParams.get('search')   || null,
-          limit:    parseInt(url.searchParams.get('limit')  || '100'),
-          offset:   parseInt(url.searchParams.get('offset') || '0'),
-        });
+        const p       = logParamsFrom(url, TOOL_NAME);
+        const limit   = Math.min(parseInt(url.searchParams.get('limit')  || '100'), 100);
+        const offset  = Math.max(parseInt(url.searchParams.get('offset') || '0'),    0);
+        const entries = await getLogs(env.DB, { ...p, limit, offset });
         return json({ ok: true, entries }, 200, request);
       }
+
       if (action === 'get_logs_count') {
-        const total = await getLogsCount(env.DB, {
-          tool: TOOL_NAME,
-          employee: url.searchParams.get('employee') || null,
-          search:   url.searchParams.get('search')   || null,
-        });
+        const total = await getLogsCount(env.DB, logParamsFrom(url, TOOL_NAME));
         return json({ ok: true, total }, 200, request);
       }
+
+      // ⚠️ getLogsExport بتقص عند LOG_EXPORT_MAX **في السكوت** — الرد لازم
+      // يرجّع cap/total/truncated، والواجهة بتعرض تحذير. من غير ده الموظف
+      // بيصدّر ملف ناقص وهو فاكره كامل.
       if (action === 'get_logs_export') {
-        const entries = await getLogsExport(env.DB, {
-          tool: TOOL_NAME,
-          employee: url.searchParams.get('employee') || null,
-          search:   url.searchParams.get('search')   || null,
-        });
-        return json({ ok: true, entries }, 200, request);
+        const p = logParamsFrom(url, TOOL_NAME);
+        const [entries, total] = await Promise.all([
+          getLogsExport(env.DB, p),
+          getLogsCount(env.DB, p),
+        ]);
+        return json({ ok: true, entries, cap: LOG_EXPORT_MAX, total,
+                      truncated: total > LOG_EXPORT_MAX }, 200, request);
       }
       // ──────────────────────────────────────────────────────
 

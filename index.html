@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
-<!-- skills: ecommoda-html-builder v1.0.0 · ecommoda-order-lifecycle v1.1.0 · ecommoda-constants v1.2.0 (28-08-2026) -->
+<!-- skills: ecommoda-html-builder v1.0.0 · ecommoda-order-lifecycle v1.1.0 · ecommoda-constants v1.6.0 (05-09-2026) -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>حذف منتج من الأوردر — EcomModa</title>
@@ -309,9 +309,7 @@ body { font-family: var(--font-body); background: var(--bg); color: var(--text-p
   <div class="settings-modal">
     <div class="settings-modal-hdr">⚙️ الإعدادات<button class="modal-close-x" onclick="closeSettings()">✕</button></div>
     <div class="settings-modal-body">
-      <div class="settings-field"><label class="settings-label">WORKER URL</label><input type="text" class="settings-input" id="cfgUrl" /></div>
       <div class="settings-field"><label class="settings-label">WORKER SECRET</label><input type="password" class="settings-input" id="cfgSecret" /></div>
-      <div class="settings-field"><label class="settings-label">ADMIN WORKER URL</label><input type="text" class="settings-input" id="cfgAdminUrl" /></div>
       <div class="settings-field" style="border-top:1.5px solid var(--border-light);padding-top:12px;">
         <label class="settings-label">فحص النظام</label>
         <button class="btn-outline" id="diagBtn" onclick="runDiag()">🩺 افحص الأداة والاتصالات</button>
@@ -331,7 +329,25 @@ body { font-family: var(--font-body); background: var(--bg); color: var(--text-p
     <div class="eco-modal-hdr"><span>📋 سجل التحديثات</span><button class="modal-close-x" onclick="closeChangelog()">✕</button></div>
     <div class="eco-modal-body">
       <div class="cl-version-block">
-        <div class="cl-version-row"><span class="cl-ver-badge" id="clLatestVerBadge"></span><span class="cl-ver-date">28-08-2026</span></div>
+        <div class="cl-version-row"><span class="cl-ver-badge" id="clLatestVerBadge"></span><span class="cl-ver-date">05-09-2026</span></div>
+        <ul class="cl-items">
+          <li class="cl-item"><span class="cl-tag fix">إصلاح</span><span>تصدير السجل بقى بيبلّغ لو اتقص — الرد فيه <code>cap</code>/<code>total</code>/<code>truncated</code> والواجهة بتعرض تحذير بدل القصّ الصامت عند ٢٠٠٠ صف</span></li>
+          <li class="cl-item"><span class="cl-tag change">تغيير</span><span>توكن شوبيفاي بقى متكاش في ذاكرة الـ Worker (بدل توكن جديد لكل نداء) مع تجديد تلقائي عند 401</span></li>
+          <li class="cl-item"><span class="cl-tag change">تغيير</span><span>دوال السجل المشتركة اتوحّدت مع باقي الأدوات — فلترة بقوايم موظفين/أنواع + فلتر تاريخ (<code>dateFrom</code>/<code>dateTo</code>) متاحين في الـ Worker</span></li>
+          <li class="cl-item"><span class="cl-tag change">تغيير</span><span>شاشة الإعدادات بقى فيها حقل واحد بس (<code>WORKER SECRET</code>) — رابط الـ Worker بقى ثابت في الكود ومش إعداد</span></li>
+          <li class="cl-item"><span class="cl-tag change">تغيير</span><span><code>WORKER_SECRET</code> بقى مشترك مع طابعة الفواتير وأداة التغليف (مجموعة <code>warehouse_ops</code>) — و🩺 فحص النظام بيعرض بصمة السر للمقارنة</span></li>
+        </ul>
+      </div>
+      <div class="cl-version-block">
+        <div class="cl-version-row"><span class="cl-ver-badge old">v1.2.0</span><span class="cl-ver-date">03-09-2026</span></div>
+        <ul class="cl-items">
+          <li class="cl-item"><span class="cl-tag fix">إصلاح</span><span>زرار «⚠️ نسخة الـ Worker مختلفة» كان ظاهر على طول حتى والنسختين متطابقتين — الحارس بقى حد أدنى رقمي</span></li>
+          <li class="cl-item"><span class="cl-tag fix">إصلاح</span><span>حارس للـ <code>WORKER_SECRET</code> الغايب — قبل كده أي طلب بـ «Bearer undefined» كان بيعدّي المصادقة</span></li>
+          <li class="cl-item"><span class="cl-tag change">تغيير</span><span>أي متغيّر ناقص في الـ Worker بيوقف العملية برسالة باسمه بدل فشل غامض</span></li>
+        </ul>
+      </div>
+      <div class="cl-version-block">
+        <div class="cl-version-row"><span class="cl-ver-badge old">v1.1.0</span><span class="cl-ver-date">28-08-2026</span></div>
         <ul class="cl-items">
           <li class="cl-item"><span class="cl-tag change">تغيير</span><span>استرجاع المخزون التلقائي بقى معطّل دائمًا وغير قابل للتعديل — الأداة مخصّصة فقط للمنتجات غير المتوفرة بالمخزن</span></li>
           <li class="cl-item"><span class="cl-tag new">جديد</span><span>عند كل حذف: تحديث ميتافيلد الحالة <code>custom.manual_status</code> إلى "Pending Edit" و<code>custom.cancel_manual_reason</code> إلى "عطلان" (لو الانتقال مسموح)</span></li>
@@ -411,7 +427,8 @@ body { font-family: var(--font-body); background: var(--bg); color: var(--text-p
           <h4>KEY VARIABLES</h4>
           <ul>
             <li><code>currentEmployee</code> — { username, displayName } في الذاكرة فقط</li>
-            <li><code>LS_URL = 'order_item_remover_worker_url'</code> · <code>LS_SECRET = 'order_item_remover_worker_secret'</code></li>
+            <li><code>WORKER_URL</code> — ثابت في <code>§CONFIG</code> (مش في localStorage — Standards #28)</li>
+            <li><code>LS_SECRET = 'order_item_remover_worker_secret'</code> — المفتاح الوحيد في localStorage</li>
             <li><code>TOOL_NAME = 'order_item_remover'</code> — قيمة tool في جدول logs</li>
             <li><code>currentOrder</code> — آخر أوردر تم البحث عنه (في الذاكرة)</li>
           </ul>
@@ -551,7 +568,7 @@ body { font-family: var(--font-body); background: var(--bg); color: var(--text-p
 // ══════════════════════════════════════════════════════════════
 // §CONFIG
 // ══════════════════════════════════════════════════════════════
-const TOOL_VERSION = 'v1.2.0';
+const TOOL_VERSION = 'v1.3.0';
 
 // ⚠️ أقل نسخة Worker الواجهة دي بتشتغل معاها — **مالهاش أي علاقة بـ
 //    TOOL_VERSION** ومتزامنهمش. بترتفع بس لما عقد الـ Worker يتغيّر بشكل
@@ -561,28 +578,40 @@ const TOOL_VERSION = 'v1.2.0';
 //    حرفي بين `'1.1.0'` (اللي الـ Worker بيرجّعه) و`'v1.1.0'` (بادئة الواجهة)،
 //    فكان **بيفشل دايمًا** وزرار «نسخة الـ Worker مختلفة» ظاهر على طول
 //    وبقى ضوضاء الناس بتتجاهلها. بقى حد أدنى رقمي زي باقي الأدوات.
-const MIN_WORKER_VERSION = '1.2.0';
-const LS_URL       = 'order_item_remover_worker_url';
-const LS_SECRET    = 'order_item_remover_worker_secret';
-const LS_ADMIN_URL = 'admin_worker_url';
-const SHOP_DOMAIN  = '6c7e1a-53.myshopify.com';
+//
+// v1.3.0: بقى '1.3.0' لأن الواجهة بقت **بتعتمد فعلاً** على حقول جديدة في رد
+//    `get_logs_export` (`cap` · `total` · `truncated`). Worker أقدم مش هيرجّع
+//    خطأ — هيرجّع رد من غير الحقول دي، فبانر الاقتطاع مايظهرش والقصّ يرجع
+//    صامت. الحارس هنا بيقول للموظف «الـ Promote ما تمّش» بدل ما يسيبه يصدّر
+//    ملف ناقص. (ده الاستثناء المشروع — تغيير شفاف للواجهة مايرفعش الحد الأدنى.)
+const MIN_WORKER_VERSION = '1.3.0';
+
+// الرابط مش سر — الحماية في WORKER_SECRET + CORS allowlist (Standards #28).
+// اسم الـ Worker بيتحدد وقت الإنشاء ومايتغيّرش، فمالوش داعي يبقى حقل إدخال.
+const WORKER_URL = 'https://order-item-remover-worker.ecommoda-dev.workers.dev';
+const LS_SECRET  = 'order_item_remover_worker_secret';   // المفتاح الوحيد في localStorage
+const SHOP_DOMAIN = '6c7e1a-53.myshopify.com';
+
+// المفاتيح دي بقت ميتة — الرابط ثابت في §CONFIG والأدمن بانل مش مستخدم أصلاً
+// (`ADMIN_WORKER_URL` كان بيتخزّن وبيتعرض وما بيتقريش ولا مرة).
+// ⚠️ LS_SECRET **مش** في القايمة — السر المحفوظ بيفضل وما حدش يدخّله تاني.
+(function cleanupLegacyConfig() {
+  try { localStorage.removeItem('order_item_remover_worker_url'); } catch {}
+  try { localStorage.removeItem('admin_worker_url'); } catch {}
+})();
 
 function getConfig() {
   return {
-    workerUrl:    localStorage.getItem(LS_URL)    || '',
+    workerUrl:    WORKER_URL.replace(/\/$/, ''),
     workerSecret: localStorage.getItem(LS_SECRET) || '',
-    adminUrl:     localStorage.getItem(LS_ADMIN_URL) || '',
   };
 }
-function isConfigured() {
-  const c = getConfig();
-  return c.workerUrl.startsWith('http') && c.workerSecret.length > 0;
-}
+function isConfigured() { return getConfig().workerSecret.trim().length > 0; }
 
 async function apiRequest(url, opts) {
   let resp;
   try { resp = await fetch(url, opts); }
-  catch (e) { throw new Error(`تعذّر الوصول للـ Worker — راجع الـ URL في الإعدادات أو نطاق الصفحة (CORS): ${e.message}`); }
+  catch (e) { throw new Error(`تعذّر الوصول للـ Worker — راجع الاتصال بالإنترنت أو نطاق الصفحة (CORS): ${e.message}`); }
   const text = await resp.text();
   let data;
   try { data = JSON.parse(text); }
@@ -622,23 +651,16 @@ function toggleSearchActiveState(el) { el.classList.toggle('has-value', el.value
 // §SHELL-JS
 // ══════════════════════════════════════════════════════════════
 function openSettings() {
-  const c = getConfig();
-  document.getElementById('cfgUrl').value = c.workerUrl || '';
-  document.getElementById('cfgSecret').value = c.workerSecret || '';
-  document.getElementById('cfgAdminUrl').value = c.adminUrl || '';
+  document.getElementById('cfgSecret').value = getConfig().workerSecret || '';
   document.getElementById('diagResult').innerHTML = '';
   document.getElementById('settingsOverlay').classList.add('open');
 }
 function closeSettings() { document.getElementById('settingsOverlay').classList.remove('open'); }
 function closeSettingsOnBackdrop(e) { if (e.target === e.currentTarget) closeSettings(); }
 function saveSettings() {
-  const url = document.getElementById('cfgUrl').value.trim();
   const secret = document.getElementById('cfgSecret').value.trim();
-  const adminUrl = document.getElementById('cfgAdminUrl').value.trim();
-  if (!url || !secret) { showToast('الرجاء إدخال الـ URL والـ Secret', 'error'); return; }
-  localStorage.setItem(LS_URL, url.replace(/\/$/,''));
+  if (!secret) { showToast('الرجاء إدخال الـ WORKER SECRET', 'error'); return; }
   localStorage.setItem(LS_SECRET, secret);
-  localStorage.setItem(LS_ADMIN_URL, adminUrl.replace(/\/$/,''));
   updateSettingsBtn(); updateLoginSettingsBtn(); closeSettings();
   showToast('تم حفظ الإعدادات ✓', 'success');
   loadEmployeesList();
@@ -667,6 +689,11 @@ async function runDiag() {
     }
     lines.push(`${c.originAllowed ? '✅' : '❌'} الأصل (Origin) مسموح: ${c.origin}`);
     for (const [k, v] of Object.entries(c.envKeys || {})) lines.push(`${v.startsWith('MISSING') ? '❌' : '✅'} ${k}: ${v}`);
+    // بصمة السر — لازم تطابق نفس البند في 🩺 بتاع طابعة الفواتير وأداة التغليف.
+    // الطول لوحده مش كافي: سرّين مختلفين بنفس الطول شكلهم واحد.
+    if (c.secretFingerprint) {
+      lines.push(`✅ بصمة WORKER_SECRET: <code>${c.secretFingerprint}</code> — مجموعة ${c.secretGroup || 'warehouse_ops'} (لازم تطابق باقي الأدوات)`);
+    }
     box.innerHTML = lines.join('<br>');
   } catch (e) { box.innerHTML = `❌ فشل الفحص: ${e.message}`; }
 }
@@ -1111,6 +1138,13 @@ async function exportLogXLSX() {
   try {
     const data = await apiGet('get_logs_export', params);
     const entries = data.entries || [];
+    if (data.truncated) {
+      showToast(
+        `⚠️ التصدير اتقص عند ${data.cap.toLocaleString('en-US')} صف من إجمالي ` +
+        `${data.total.toLocaleString('en-US')} — ضيّق الفلاتر عشان تصدّر الباقي`,
+        'warning', 8000
+      );
+    }
     if (!entries.length) { showToast('لا توجد بيانات للتصدير', 'error'); return; }
     const wb = new ExcelJS.Workbook(); wb.views = [{ rightToLeft: true }];
     const ws = wb.addWorksheet('سجل العمليات'); ws.views = [{ state: 'frozen', ySplit: 1, rightToLeft: true }];
