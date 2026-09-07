@@ -31,7 +31,7 @@
 // ══════════════════════════════════════════════════════════════════
 // §CONSTANTS
 // ══════════════════════════════════════════════════════════════════
-const WORKER_VERSION = '1.3.0';
+const WORKER_VERSION = '1.4.0';
 const TOOL_NAME       = 'order_item_remover'; // ⚠️ REGISTER in ecommoda-constants §7
                                                 //    BEFORE first deploy — see README/handoff notes.
 const API_VERSION     = '2026-01';
@@ -53,7 +53,16 @@ const S1_PENDING_EDIT = 'Pending Edit';
 // directly-confirmed rows — not the "inferred, ask Ahmed" ones). Re-writing the
 // same value (already Pending Edit) is treated as a no-op, not a transition.
 const S1_VALID_SOURCES_FOR_PENDING_EDIT = new Set(['Confirmed', 'Ready', S1_PENDING_EDIT]);
-const CANCEL_MANUAL_REASON_VALUE = 'عطلان';
+// 🔴 القيمة دي **لازم** تكون واحدة من `choices` بتاعة تعريف
+// `custom.cancel_manual_reason` الحيّ على شوبيفاي — مش أي نص.
+// v1.4.0: كانت `'عطلان'` وهي **مش موجودة في القايمة أصلاً**، فكل حذف كان
+// بيمشي على الأوردر ويفشل في كتابة الميتافيلد بـ
+// `Value does not exist in provided choices` — البند بيتحذف والسبب/الحالة
+// مابيتكتبوش. القيمة المعتمدة (أحمد 07-09-2026): `'المنتج غير متوفر'`
+// وهي موجودة فعلاً في القايمة.
+// ⛔ متغيّرش القيمة دي من غير ما تتأكد إنها في `choices` — والحارس تحت
+// (§PREFLIGHT) بيمنع الحذف بالكامل لو اتغيّرت لقيمة مش موجودة.
+const CANCEL_MANUAL_REASON_VALUE = 'المنتج غير متوفر';
 
 // ══════════════════════════════════════════════════════════════════
 // §CORS — Option B (write / destructive tool)
@@ -605,28 +614,66 @@ async function removeLineItem(env, token, { orderGid, lineItemGid, restock, noti
 // Metafield `type` is read from the LIVE definition each call — never hardcoded
 // — per shopify-graphql-helper: an exact-string type mismatch fails the whole
 // metafieldsSet call, including fields bundled with it.
-async function getMetafieldDefinitionTypes(env, token, keys) {
+async function getMetafieldDefinitions(env, token, keys) {
   const data = await shopifyGQL(env, token,
-    `query MFDefs { metafieldDefinitions(first: 50, ownerType: ORDER, namespace: "custom") { nodes { key type { name } } } }`,
+    `query MFDefs { metafieldDefinitions(first: 50, ownerType: ORDER, namespace: "custom") { nodes { key type { name } validations { name value } } } }`,
     {}, 'metafieldDefinitions'
   );
   const nodes = data?.data?.metafieldDefinitions?.nodes || [];
   const map = {};
-  for (const n of nodes) map[n.key] = n.type?.name;
+  for (const n of nodes) {
+    // `choices` بترجع **نص JSON** مش مصفوفة. لو التعريف مالوش قيود، الحقل
+    // مش موجود أصلاً — وساعتها `choices = null` معناها «أي قيمة مقبولة»،
+    // مش «مفيش قيمة مقبولة».
+    let choices = null;
+    const raw = (n.validations || []).find(v => v.name === 'choices')?.value;
+    if (raw) { try { const parsed = JSON.parse(raw); if (Array.isArray(parsed)) choices = parsed; } catch { /* تعريف غريب — نعتبره بلا قيود */ } }
+    map[n.key] = { type: n.type?.name, choices };
+  }
   const missing = keys.filter(k => !map[k]);
   if (missing.length) throw new Error(`تعريف الميتافيلد غير موجود في شوبيفاي: ${missing.join(', ')} — أنشئه من Settings → Custom data → Orders أولاً`);
   return map;
 }
 
-async function updateOrderStatusMetafields(env, token, { orderGid, previousS1 }) {
-  const defTypes = await getMetafieldDefinitionTypes(env, token, ['manual_status', 'cancel_manual_reason']);
-  const statusTransitionAllowed = previousS1 == null || S1_VALID_SOURCES_FOR_PENDING_EDIT.has(previousS1);
+// ─── §PREFLIGHT::checkStatusMetafieldValues — الحارس اللي بيمنع الحذف قبل ما يحصل ───
+// 🔴 v1.4.0 (أحمد 07-09-2026). قبل كده الترتيب كان: احذف البند → اكتب
+// الميتافيلدات → لو الكتابة فشلت رجّع `warning`. والحذف **مالوش رجعة**، يعني
+// قيمة غلط في `CANCEL_MANUAL_REASON_VALUE` كانت بتنتج بند متحذف من أوردر حي
+// وسبب إلغاء **مش متكتب** — وده اللي حصل فعلاً على `#53737`.
+//
+// الحارس ده بيقرا التعريفات الحيّة **قبل أي كتابة** وبيتأكد إن كل قيمة
+// إحنا ناويين نكتبها موجودة في `choices` بتاعتها. أي مشكلة = العملية بتتلغي
+// بالكامل والأوردر ما بيتلمسش.
+//
+// ⚠️ الحالة المستثناة الوحيدة: `manual_status` لما الانتقال أصلاً **مش
+// مسموح** — القيمة مش هتتكتب، فقيدها مش مهم. (اللي بيتشك عليه هو اللي
+// بيتكتب بس.)
+function checkStatusMetafieldValues(defs, { statusTransitionAllowed }) {
+  const problems = [];
+  const planned = [
+    { key: 'cancel_manual_reason', label: 'سبب الإلغاء اليدوي', value: CANCEL_MANUAL_REASON_VALUE },
+  ];
+  if (statusTransitionAllowed) planned.push({ key: 'manual_status', label: 'حالة الأوردر (S1)', value: S1_PENDING_EDIT });
 
+  for (const f of planned) {
+    const def = defs[f.key];
+    if (!def) { problems.push({ key: f.key, label: f.label, value: f.value, choices: null, reason: 'تعريف الميتافيلد غير موجود على شوبيفاي' }); continue; }
+    if (def.choices && !def.choices.includes(f.value)) {
+      problems.push({ key: f.key, label: f.label, value: f.value, choices: def.choices, reason: 'القيمة غير موجودة ضمن الخيارات المسموحة في تعريف الميتافيلد' });
+    }
+  }
+  return problems;
+}
+
+// ⚠️ التعريفات بتتمرّر من الـ preflight — **مش** بتتجاب تاني هنا. نداء تاني
+// معناه إن اللي اتفحص مش بالضرورة اللي هيتكتب (التعريف ممكن يتغيّر بين
+// النداءين)، وده بالظبط الفجوة اللي الحارس اتكتب عشانها.
+async function updateOrderStatusMetafields(env, token, { orderGid, previousS1, defs, statusTransitionAllowed }) {
   const metafields = [
-    { ownerId: orderGid, namespace: 'custom', key: 'cancel_manual_reason', type: defTypes.cancel_manual_reason, value: CANCEL_MANUAL_REASON_VALUE },
+    { ownerId: orderGid, namespace: 'custom', key: 'cancel_manual_reason', type: defs.cancel_manual_reason.type, value: CANCEL_MANUAL_REASON_VALUE },
   ];
   if (statusTransitionAllowed) {
-    metafields.push({ ownerId: orderGid, namespace: 'custom', key: 'manual_status', type: defTypes.manual_status, value: S1_PENDING_EDIT });
+    metafields.push({ ownerId: orderGid, namespace: 'custom', key: 'manual_status', type: defs.manual_status.type, value: S1_PENDING_EDIT });
   }
 
   const data = await shopifyGQL(env, token,
@@ -688,6 +735,46 @@ async function handleRemoveItem(request, env) {
   if (!target) return badRequest('هذا البند لم يعد ضمن أوردر Unfulfilled — أعد تحميل الأوردر', request);
   if (!target.removable) return badRequest(target.reason || 'هذا البند غير قابل للحذف', request);
 
+  // ─── §PREFLIGHT — الفحص قبل أي كتابة (v1.4.0 · أحمد 07-09-2026) ───
+  // 🔴 الترتيب هنا **هو** الحارس: التعريفات بتتقرا وبتتفحص قبل `removeLineItem`.
+  // أي مشكلة = رفض كامل، الأوردر ما بيتلمسش خالص. تحريك الكتلة دي تحت الحذف
+  // بيرجّع الباج بالظبط (بند متحذف بلا رجعة + سبب إلغاء مش متكتب).
+  const statusTransitionAllowed = orderBefore.manualStatus == null
+    || S1_VALID_SOURCES_FOR_PENDING_EDIT.has(orderBefore.manualStatus);
+
+  let defs;
+  try {
+    defs = await getMetafieldDefinitions(env, token, ['manual_status', 'cancel_manual_reason']);
+  } catch (defErr) {
+    await writeLog(env.DB, {
+      tool: TOOL_NAME, type: 'remove_failed', employee,
+      orderId: orderBefore.numericId, orderName: orderBefore.name,
+      sku: target.sku, productTitle: target.title,
+      notes: `تم إلغاء الحذف قبل تنفيذه — تعذّر قراءة تعريفات الميتافيلد: ${defErr.message}`,
+      extra: { orderGid: orderId, lineItemGid: lineItemId, blocked: true, stage: 'preflight', error: defErr.message },
+    }).catch(() => {});
+    return json({
+      ok: false, status: 'error', blocked: true, stage: 'preflight',
+      error: `تم إلغاء العملية قبل تنفيذها — تعذّر قراءة تعريفات الميتافيلد من شوبيفاي: ${defErr.message}`,
+    }, 409, request);
+  }
+
+  const problems = checkStatusMetafieldValues(defs, { statusTransitionAllowed });
+  if (problems.length) {
+    await writeLog(env.DB, {
+      tool: TOOL_NAME, type: 'remove_failed', employee,
+      orderId: orderBefore.numericId, orderName: orderBefore.name,
+      sku: target.sku, productTitle: target.title,
+      notes: `تم إلغاء الحذف قبل تنفيذه — قيم الحالة/السبب مرفوضة من تعريف الميتافيلد: ${problems.map(p => `${p.key}="${p.value}"`).join(' · ')}`,
+      extra: { orderGid: orderId, lineItemGid: lineItemId, blocked: true, stage: 'preflight', problems },
+    }).catch(() => {});
+    return json({
+      ok: false, status: 'error', blocked: true, stage: 'preflight',
+      error: 'تم إلغاء العملية بالكامل — لم يتم حذف أي بند من الأوردر. قيمة الحالة/السبب اللي الأداة بتكتبها مرفوضة من تعريف الميتافيلد على شوبيفاي.',
+      problems,
+    }, 409, request);
+  }
+
   const note = `Removed via EcomModa Order Item Remover by ${employee}` + (staffNote ? ` — ${staffNote}` : '');
 
   let result;
@@ -702,7 +789,9 @@ async function handleRemoveItem(request, env) {
     // شوبيفاي ولا رجعة فيها؛ النتيجة تبقى 'warning' مش 'error' (3 حالات مش اتنين).
     let metaOutcome = { statusUpdated: false, error: null };
     try {
-      metaOutcome = await updateOrderStatusMetafields(env, token, { orderGid: orderId, previousS1: orderBefore.manualStatus });
+      metaOutcome = await updateOrderStatusMetafields(env, token, {
+        orderGid: orderId, previousS1: orderBefore.manualStatus, defs, statusTransitionAllowed,
+      });
       result.actions.push(metaOutcome.statusUpdated
         ? `تحديث الحالة إلى "${S1_PENDING_EDIT}" + سبب الإلغاء اليدوي إلى "${CANCEL_MANUAL_REASON_VALUE}"`
         : `تحديث سبب الإلغاء اليدوي إلى "${CANCEL_MANUAL_REASON_VALUE}" فقط — تخطي تحديث الحالة (الانتقال من "${orderBefore.manualStatus || '—'}" إلى "${S1_PENDING_EDIT}" غير مسموح)`);
@@ -799,8 +888,14 @@ async function handleDiag(request, env) {
     } catch (e) { checks.accessScopesError = e.message; }
 
     try {
-      const defTypes = await getMetafieldDefinitionTypes(env, token, ['manual_status', 'cancel_manual_reason']);
-      checks.metafieldDefs = defTypes;
+      const defs = await getMetafieldDefinitions(env, token, ['manual_status', 'cancel_manual_reason']);
+      checks.metafieldDefs = Object.fromEntries(Object.entries(defs).map(([k, d]) => [k, d.type]));
+      // 🔴 الفحص ده هو نفسه حارس §PREFLIGHT — بيخلّي «قيمة مرفوضة من التعريف»
+      // بند أحمر في 🩺 فحص النظام **قبل** ما موظف يقف على أوردر حي.
+      const problems = checkStatusMetafieldValues(defs, { statusTransitionAllowed: true });
+      checks.metafieldValues = problems.length
+        ? `FAILED: ${problems.map(p => `${p.key}="${p.value}" — ${p.reason}`).join(' | ')}`
+        : 'ok';
     } catch (e) { checks.metafieldDefsError = e.message; }
   } catch (e) { checks.oauth = `FAILED: ${e.message}`; }
 

@@ -236,6 +236,25 @@ body { font-family: var(--font-body); background: var(--bg); color: var(--text-p
 .btn-remove:hover:not(:disabled) { background:var(--red); color:#fff; }
 .btn-remove:disabled { opacity:.45; cursor:not-allowed; background:var(--surface-2); color:var(--text-muted); border-color:var(--border); }
 
+/* ── §OUTCOME-MODAL — نافذة نتيجة الحذف (v1.4.0) ─────────────────────────────
+   🔴 التحذير بقى **نافذة** مش توست بقرار (أحمد 07-09-2026). التوست بيختفي
+   لوحده بعد ثوانٍ، والحالة اللي بيتكلم عنها (بند اتحذف من أوردر حي والحالة/
+   السبب ما اتكتبوش) بتسيب الأوردر **ناقص** ومحتاجة تدخّل يدوي على شوبيفاي.
+   ⚠️ الكتلة دي والـ JS بتاعها مكرّرين حرفيًا في `remove.html` بتاع الهب —
+   أي تعديل لازم يحصل في الاتنين في نفس التمريرة (درس R1). */
+.oc-modal-hdr.is-blocked, .oc-modal-hdr.is-error { background:var(--red-light); color:var(--red); }
+.oc-modal-hdr.is-warning { background:var(--amber-light); color:#92400e; }
+.oc-line { font-size:13px; line-height:1.9; }
+.oc-actions { margin-top:12px; font-size:12.5px; }
+.oc-actions ul { margin:6px 0 0; padding-inline-start:20px; }
+.oc-actions li { margin-bottom:4px; line-height:1.7; }
+.oc-prob { margin-top:10px; border:1px solid var(--red-border); background:var(--red-light); border-radius:var(--radius-sm); padding:10px 12px; font-size:12.5px; line-height:1.8; }
+.oc-prob-key { font-weight:700; color:var(--red); }
+.oc-choices { margin-top:6px; display:flex; flex-wrap:wrap; gap:5px; }
+.oc-choice { background:var(--surface); border:1px solid var(--border); border-radius:99px; padding:2px 9px; font-size:11px; font-weight:600; }
+.oc-todo { margin-top:12px; }
+.oc-todo ol { margin:6px 0 0; padding-inline-start:20px; }
+.oc-todo li { margin-bottom:5px; line-height:1.75; font-size:12.5px; }
 .result-box { border-radius:var(--radius-sm); padding:14px; margin-top:10px; font-size:13px; line-height:1.8; }
 .result-box.success { background:var(--green-light); border:1px solid var(--green-border); }
 .result-box.warning { background:var(--amber-light); border:1px solid #fcd34d; }
@@ -329,7 +348,16 @@ body { font-family: var(--font-body); background: var(--bg); color: var(--text-p
     <div class="eco-modal-hdr"><span>📋 سجل التحديثات</span><button class="modal-close-x" onclick="closeChangelog()">✕</button></div>
     <div class="eco-modal-body">
       <div class="cl-version-block">
-        <div class="cl-version-row"><span class="cl-ver-badge" id="clLatestVerBadge"></span><span class="cl-ver-date">05-09-2026</span></div>
+        <div class="cl-version-row"><span class="cl-ver-badge" id="clLatestVerBadge"></span><span class="cl-ver-date">07-09-2026</span></div>
+        <ul class="cl-items">
+          <li class="cl-item"><span class="cl-tag fix">إصلاح</span><span>🔴 <b>سبب الإلغاء كان بيتكتب بقيمة مش موجودة أصلاً.</b> الأداة كانت بتحط <code>custom.cancel_manual_reason = «عطلان»</code>، والقيمة دي <b>مش ضمن الخيارات</b> المعرّفة على شوبيفاي — فكل حذف كان بينجح في شيل البند و<b>يفشل</b> في كتابة الحالة/السبب برسالة <code>Value does not exist in provided choices</code>. القيمة المعتمدة بقت <b>«المنتج غير متوفر»</b>.</span></li>
+          <li class="cl-item"><span class="cl-tag new">جديد</span><span>🔴 <b>حارس §PREFLIGHT — بيمنع العملية بالكامل قبل ما تحصل.</b> الـ Worker بقى بيقرا تعريف الميتافيلد الحيّ <b>قبل</b> أي كتابة وبيتأكد إن كل قيمة هيكتبها ضمن <code>choices</code>. أي مشكلة = رفض كامل و<b>الأوردر ما بيتلمسش خالص</b>. قبل كده الترتيب كان «احذف الأول واكتب بعدين»، والحذف <b>مالوش رجعة</b>.</span></li>
+          <li class="cl-item"><span class="cl-tag change">تغيير</span><span>⚠️ <b>التحذير بقى نافذة مش توست.</b> النافذة بتعرض القيمة المرفوضة و<b>قائمة الخيارات المسموحة</b> والمطلوب عمله، وبتتقفل بزرار صريح بس — الضغط بره مايقفلهاش.</span></li>
+          <li class="cl-item"><span class="cl-tag new">جديد</span><span>🩺 <b>فحص النظام</b> بقى فيه بند <code>metafieldValues</code> — بيولّع أحمر لو قيمة الحالة/السبب مرفوضة من التعريف، <b>قبل</b> ما موظف يقف على أوردر حي.</span></li>
+        </ul>
+      </div>
+      <div class="cl-version-block">
+        <div class="cl-version-row"><span class="cl-ver-badge old">v1.3.0</span><span class="cl-ver-date">05-09-2026</span></div>
         <ul class="cl-items">
           <li class="cl-item"><span class="cl-tag fix">إصلاح</span><span>تصدير السجل بقى بيبلّغ لو اتقص — الرد فيه <code>cap</code>/<code>total</code>/<code>truncated</code> والواجهة بتعرض تحذير بدل القصّ الصامت عند ٢٠٠٠ صف</span></li>
           <li class="cl-item"><span class="cl-tag change">تغيير</span><span>توكن شوبيفاي بقى متكاش في ذاكرة الـ Worker (بدل توكن جديد لكل نداء) مع تجديد تلقائي عند 401</span></li>
@@ -383,7 +411,7 @@ body { font-family: var(--font-body); background: var(--bg); color: var(--text-p
             <li>لو الأوردر مش مؤهل (متسدد أونلاين / ملغي / مقفول) — بانر أحمر واضح بالسبب، ومفيش حذف متاح.</li>
             <li>الموظف يختار منتج ويضغط "حذف من الأوردر" — نافذة تأكيد بتاعتين إلزاميتين: مراجعة المخزون + قطع الفاتورة.</li>
             <li>الأداة تنفّذ Order Editing (Shopify) لإزالة البند بالكامل — <strong>بدون استرجاع مخزون أبدًا</strong>.</li>
-            <li>لو الانتقال مسموح: تحديث <code>custom.manual_status</code> إلى "Pending Edit" و<code>custom.cancel_manual_reason</code> إلى "عطلان".</li>
+            <li>لو الانتقال مسموح: تحديث <code>custom.manual_status</code> إلى "Pending Edit" و<code>custom.cancel_manual_reason</code> إلى "المنتج غير متوفر".</li>
             <li>النتيجة تظهر كـ toast وتتسجّل في سجل العمليات — نجاح / تحذير / فشل — والأداة ترجع لوضعها الافتراضي (مربع بحث فاضي).</li>
           </ol>
 
@@ -402,7 +430,7 @@ body { font-family: var(--font-body); background: var(--bg); color: var(--text-p
             <tr><td>حذف البند</td><td>Order Editing API — <code>orderEditSetQuantity(quantity: 0)</code> ثم Commit</td></tr>
             <tr><td>استرجاع المخزون</td><td><strong>معطّل دائمًا</strong> — <code>restock: false</code> مفروضة من السيرفر بغض النظر عن أي مدخل</td></tr>
             <tr><td>تحديث الحالة</td><td><code>custom.manual_status → Pending Edit</code> — بس لو الحالة الحالية <code>Confirmed</code> أو <code>Ready</code> (أو <code>Pending Edit</code> بالفعل)، وإلا يتم تخطيها مع تحذير</td></tr>
-            <tr><td>تحديث سبب الإلغاء</td><td><code>custom.cancel_manual_reason → عطلان</code> — دايمًا، بغض النظر عن حالة الأوردر</td></tr>
+            <tr><td>تحديث سبب الإلغاء</td><td><code>custom.cancel_manual_reason → المنتج غير متوفر</code> — دايمًا، بغض النظر عن حالة الأوردر. القيمة <b>لازم</b> تكون ضمن خيارات تعريف الميتافيلد، والحارس بيتأكد من ده <b>قبل</b> الحذف</td></tr>
           </table>
 
           <h4>⚠️ قيود مهمة</h4>
@@ -463,6 +491,19 @@ body { font-family: var(--font-body); background: var(--bg); color: var(--text-p
     <div class="settings-modal-ftr">
       <button class="btn-modal-cancel" onclick="closeConfirmRemove()">إلغاء</button>
       <button class="btn-confirm-ok" id="crmOkBtn" disabled>🗑️ تأكيد الحذف</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ §OUTCOME-MODAL — نتيجة الحذف: تحذير / فشل / إلغاء مسبق ══
+     ⚠️ مفيش `onclick` على الـ overlay هنا عن قصد — الضغط بره النافذة **مايقفلهاش**،
+        عشان الموظف ما يقفلهاش بالغلط وهو بيدوّس على الشاشة. -->
+<div class="eco-overlay" id="removeOutcomeOverlay">
+  <div class="eco-modal" style="max-width:600px;">
+    <div class="eco-modal-hdr" id="rocHdr"><span id="rocTitle">—</span><button class="modal-close-x" onclick="closeRemoveOutcome()">✕</button></div>
+    <div class="eco-modal-body" id="rocBody"></div>
+    <div class="settings-modal-ftr">
+      <button class="btn-modal-cancel" onclick="closeRemoveOutcome()">تمام، فهمت</button>
     </div>
   </div>
 </div>
@@ -568,7 +609,7 @@ body { font-family: var(--font-body); background: var(--bg); color: var(--text-p
 // ══════════════════════════════════════════════════════════════
 // §CONFIG
 // ══════════════════════════════════════════════════════════════
-const TOOL_VERSION = 'v1.3.0';
+const TOOL_VERSION = 'v1.4.0';
 
 // ⚠️ أقل نسخة Worker الواجهة دي بتشتغل معاها — **مالهاش أي علاقة بـ
 //    TOOL_VERSION** ومتزامنهمش. بترتفع بس لما عقد الـ Worker يتغيّر بشكل
@@ -584,7 +625,13 @@ const TOOL_VERSION = 'v1.3.0';
 //    خطأ — هيرجّع رد من غير الحقول دي، فبانر الاقتطاع مايظهرش والقصّ يرجع
 //    صامت. الحارس هنا بيقول للموظف «الـ Promote ما تمّش» بدل ما يسيبه يصدّر
 //    ملف ناقص. (ده الاستثناء المشروع — تغيير شفاف للواجهة مايرفعش الحد الأدنى.)
-const MIN_WORKER_VERSION = '1.3.0';
+//
+// v1.4.0: بقى '1.4.0' لأن الواجهة بقت **بتعتمد فعلاً** على حارس §PREFLIGHT في
+//    الـ Worker — الوعد اللي الأداة بتقوله للموظف دلوقتي هو «العملية بتتلغي
+//    بالكامل لو القيمة مرفوضة». Worker أقدم مافيهوش الحارس، يعني بيحذف البند
+//    الأول ويفشل في الكتابة بعدين — بالظبط الباج اللي النسخة دي اتكتبت عشانه.
+//    ودي **مش** حالة شفافة زي v1.3.0: الفرق هنا بند متحذف من أوردر حي.
+const MIN_WORKER_VERSION = '1.4.0';
 
 // الرابط مش سر — الحماية في WORKER_SECRET + CORS allowlist (Standards #28).
 // اسم الـ Worker بيتحدد وقت الإنشاء ومايتغيّرش، فمالوش داعي يبقى حقل إدخال.
@@ -1027,19 +1074,92 @@ async function doRemoveItem(lineItemId) {
       employee: currentEmployee.username, notifyCustomer,
     });
     const status = res.status || (res.ok ? 'success' : 'error');
-    if (res.ok) {
-      // Item removal itself executed (success أو warning على تحديث الحالة/السبب فقط)
-      showToast(res.message || 'تم الحذف ✓', status === 'warning' ? 'warning' : 'success', status === 'warning' ? 6000 : 3000);
+    if (res.ok && status === 'success') {
+      // النجاح الكامل بيفضل توست — الحالة دي مالهاش أي فعل مطلوب من الموظف.
+      showToast(res.message || 'تم الحذف ✓', 'success', 3000);
       playBeep('success');
       resetRemoveTabToDefault();
+    } else if (res.ok) {
+      // 🔴 تحذير: البند **اتحذف فعلاً** والحالة/السبب ما اتكتبوش — نافذة مش توست.
+      playBeep('error');
+      showRemoveOutcome('warning', res);
+      resetRemoveTabToDefault();
     } else {
+      // فشل — سواء اتلغى قبل التنفيذ (`blocked`) أو وقع أثناء التنفيذ.
       renderRemoveResult('error', res);
-      showToast(res.error || 'حصل خطأ', 'error'); playBeep('error');
+      playBeep('error');
+      showRemoveOutcome(res.blocked ? 'blocked' : 'error', res);
     }
   } catch (err) {
     renderRemoveResult('error', { error: err.message });
-    showToast(err.message, 'error'); playBeep('error');
+    playBeep('error');
+    showRemoveOutcome('error', { error: err.message });
   }
+}
+
+// ─── §OUTCOME-MODAL::showRemoveOutcome — نافذة النتيجة (v1.4.0 · أحمد 07-09-2026) ───
+// 🔴 الحالات التلاتة دي **ممنوع** ترجع توست. التوست بيختفي لوحده، والتلاتة
+// محتاجين فعل من الموظف (أو على الأقل علمه إن الأوردر مش في حالته النهائية):
+//   blocked → العملية اتلغت بالكامل قبل أي تنفيذ · الأوردر ما اتلمسش
+//   warning → البند اتحذف بس الحالة/السبب ما اتكتبوش · محتاج تدخّل يدوي
+//   error   → فشل أثناء التنفيذ · الحالة على شوبيفاي مش مؤكدة
+// ⚠️ مكرّرة حرفيًا في `Warehouse-Operations-Center/remove.html` — أي تعديل في
+//    الاتنين في نفس التمريرة (درس R1).
+function ocEsc(v) {
+  return String(v ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+function showRemoveOutcome(kind, res) {
+  const meta = {
+    blocked: { title: '⛔ تم إلغاء العملية بالكامل — لم يُحذف أي بند', cls: 'is-blocked' },
+    warning: { title: '⚠️ تم الحذف — لكن الحالة/السبب لم يُحدَّثا', cls: 'is-warning' },
+    error:   { title: '✗ فشل تنفيذ الحذف',                              cls: 'is-error'   },
+  }[kind] || { title: '✗ فشل', cls: 'is-error' };
+
+  document.getElementById('rocTitle').textContent = meta.title;
+  document.getElementById('rocHdr').className = 'eco-modal-hdr oc-modal-hdr ' + meta.cls;
+
+  let html = `<div class="oc-line">${ocEsc(res.message || res.error || 'حصل خطأ غير متوقع')}</div>`;
+
+  // تفاصيل القيم المرفوضة — بتيجي من حارس §PREFLIGHT في الـ Worker.
+  if (Array.isArray(res.problems) && res.problems.length) {
+    html += res.problems.map(p => `<div class="oc-prob">
+      <div><span class="oc-prob-key">custom.${ocEsc(p.key)}</span> — ${ocEsc(p.label || '')}</div>
+      <div>القيمة اللي الأداة بتحاول تكتبها: <b>«${ocEsc(p.value)}»</b></div>
+      <div>${ocEsc(p.reason || '')}</div>
+      ${Array.isArray(p.choices) && p.choices.length
+        ? `<div style="margin-top:6px;">الخيارات المسموحة في تعريف الميتافيلد:</div>
+           <div class="oc-choices">${p.choices.map(c => `<span class="oc-choice">${ocEsc(c)}</span>`).join('')}</div>`
+        : ''}
+    </div>`).join('');
+  }
+
+  if (Array.isArray(res.actions) && res.actions.length) {
+    html += `<div class="oc-actions">ما تم فعليًا على الأوردر:<ul>${res.actions.map(a => `<li>${ocEsc(a)}</li>`).join('')}</ul></div>`;
+  }
+
+  if (kind === 'blocked') {
+    html += `<div class="banner banner-green">✅ الأوردر <b>لم يُمس</b> — مفيش أي بند اتحذف ومفيش أي كتابة حصلت على شوبيفاي. تقدر تعيد المحاولة بأمان بعد إصلاح السبب فوق.</div>
+      <div class="oc-todo">المطلوب:<ol>
+        <li>بلّغ المسؤول التقني — القيمة اللي الأداة بتكتبها مش موجودة في تعريف الميتافيلد على شوبيفاي.</li>
+        <li>يتصلح واحد من اتنين: قيمة الأداة تتغيّر لواحدة من الخيارات فوق، أو الخيار يتضاف في Settings → Custom data → Orders.</li>
+      </ol></div>`;
+  } else if (kind === 'warning') {
+    html += `<div class="banner banner-red">🔴 البند <b>اتحذف فعلاً</b> من الأوردر — الحذف مالوش رجعة. اللي ناقص هو تحديث الحالة/السبب بس.</div>
+      <div class="oc-todo">المطلوب دلوقتي:<ol>
+        <li>افتح الأوردر على شوبيفاي واضبط <code>custom.manual_status</code> و<code>custom.cancel_manual_reason</code> بإيدك.</li>
+        <li>بلّغ المسؤول التقني بالرسالة اللي فوق بالنص.</li>
+      </ol></div>`;
+  } else {
+    html += `<div class="banner banner-amber">⚠️ افتح الأوردر على شوبيفاي وتأكد من حالته الفعلية قبل أي محاولة تانية — الفشل ممكن يكون حصل قبل أو بعد التنفيذ.</div>`;
+  }
+
+  if (res.logged === false) html += `<div class="banner banner-amber">⚠️ العملية لم تُسجَّل في سجل العمليات.</div>`;
+
+  document.getElementById('rocBody').innerHTML = html;
+  document.getElementById('removeOutcomeOverlay').classList.add('open');
+}
+function closeRemoveOutcome() {
+  document.getElementById('removeOutcomeOverlay').classList.remove('open');
 }
 
 // ─── §TOOL-JS::resetRemoveTabToDefault ───
