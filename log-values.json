@@ -1,0 +1,34 @@
+{
+  "tool": "order_item_remover",
+  "since": null,
+  "types": {
+    "login": {
+      "result": null,
+      "stage": null,
+      "desc": "دخول موظف"
+    },
+    "logout": {
+      "result": null,
+      "stage": null,
+      "desc": "خروج موظف"
+    },
+    "remove_failed": {
+      "result": null,
+      "stage": [
+        "preflight",
+        null
+      ],
+      "desc": "حذف المنتج فشل أو اتمنع قبل التنفيذ"
+    },
+    "remove_item": {
+      "result": null,
+      "stage": null,
+      "desc": "منتج اتشال من الأوردر — بدون استرجاع مخزون"
+    },
+    "update": {
+      "result": null,
+      "stage": null,
+      "desc": "تحديث ميتافيلد S1 بعد حذف المنتج"
+    }
+  }
+}
