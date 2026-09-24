@@ -1,10 +1,10 @@
 # حذف منتج من الأوردر (`Order-Item-Remover`)
 
-![version](https://img.shields.io/badge/version-v1.4.0-blue)
+![version](https://img.shields.io/badge/version-v1.4.1-blue)
 
 **بتعمل إيه:** حذف منتج واحد لسه Unfulfilled بالكامل من أوردر COD غير مسدد، بدل إلغاء الأوردر كله.
 **مين بيستخدمها:** خدمة العملاء / إدارة الأوردرات
-**الإصدار:** Worker `v1.4.0` · الواجهة `v1.4.0` · `MIN_WORKER_VERSION = 1.4.0`
+**الإصدار:** Worker `v1.4.1` · الواجهة `v1.4.0` · `MIN_WORKER_VERSION = 1.4.0`
 
 ## الروابط
 
@@ -38,6 +38,12 @@ type  : remove_item · remove_failed · login · logout
 > `type = 'update'` (لو تحديث `custom.manual_status` اتنفذ فعليًا) — القيمتين
 > دول مسجَّلين بالفعل في `ecommoda-constants` §7 تحت "Metafields Change Log"،
 > مش خاصّين بالأداة دي.
+
+> 🟢 **من v1.4.1: حارس الطبقة ٥ جوّه `writeLog`** (`ecommoda-worker-builder`
+> Step 7-ج). أي `(tool, type)` مش في `LOG_REGISTRY` بتتكتب عادي +
+> `extra._unregistered = true` + UPSERT صامت في `log_value_alerts` المشترك
+> (`ecommoda-constants` §2). **مفيش رفض كتابة أبدًا.** المصدر: `log-values.json`
+> جنب `index.js` — `node check-log-values.mjs` لازم يعدّي `exit 0` قبل أي تسليم.
 
 ## المضبوط فعليًا في الداشبورد
 
@@ -241,16 +247,32 @@ metafieldsSet: Value does not exist in provided choices: ["لا يرد نهائ�
 
 | المهارة | الإصدار وقت آخر تعديل |
 |---|---|
-| ecommoda-worker-builder | v2.0.0 (كاملة من v1.3.0 — assertEnv · حارس WORKER_SECRET · كاش التوكن · `§SHARED` الموحّدة) |
+| ecommoda-worker-builder | v3.7.1 (الطبقة ٥ — الحارس الديناميكي لقيم اللوج، Step 7-ج) |
 | ecommoda-html-builder | v1.0.0 |
 | shopify-graphql-helper | v1.0.0 |
 | ecommoda-order-lifecycle | v1.1.0 |
-| ecommoda-constants | v1.6.0 |
+| ecommoda-constants | v3.1.0 |
 
-آخر مطابقة: 07-09-2026 · `index.js` v1.4.0 · `index.html` v1.4.0
+آخر مطابقة: 24-09-2026 · `index.js` v1.4.1 · `index.html` v1.4.0
 🔴 معلّقة: — لا شيء
 
 ## مسائل مفتوحة
+
+### ✅ اتقفلت في v1.4.1 (الطبقة ٥ — الحارس الديناميكي لقيم اللوج · 24-09-2026)
+
+- ~~`check-log-values.mjs` كان بيدوّر على `type:` بنقطتين بس، فـobject
+  shorthand (`{ tool, type }`) كان بيعدّي في صمت~~ — اتستبدل بالنسخة
+  المصلَّحة. شغّلت بعد الاستبدال ورجعت `exit 0` من غير أي قيمة ناقصة — كل
+  نداءات `writeLog` في `index.js` مكتوبة `type:` صريح أصلاً، مفيش shorthand.
+- ~~مفيش حارس وقت التشغيل يمسك قيمة `(tool, type)` ديناميكية مش شايفها
+  التحقق الساكن~~ — `§LOG-REG` جوّه `writeLog` (v1.4.1): قيمة غير مسجّلة في
+  `LOG_REGISTRY` بتتكتب عادي (مفيش رفض كتابة أبدًا) + `extra._unregistered`
+  + UPSERT صامت في `log_value_alerts` **بعد** الكتابة. `LOG_REGISTRY` مبني
+  من `log-values.json` بعد ما `"update"` اتحط ليها `"tool": "metafields_change"`
+  صراحةً — كانت بتتكتب تحت السجل المشترك من غير ما الملف الجديد يقوله.
+- ~~بصمة المهارات في هيدر `index.js` كانت متأخرة عن الجدول هنا~~ —
+  `ecommoda-worker-builder v1.0.0`/`ecommoda-constants v1.2.0` في الهيدر
+  مقابل `v2.0.0`/`v1.6.0` هنا. اتصلّحت المصدرين معًا لأحدث نسخة (Rule 8).
 
 ### ✅ اتقفلت في v1.4.0 (بلاغ `#53737` · 07-09-2026)
 

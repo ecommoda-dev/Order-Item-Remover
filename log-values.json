@@ -26,9 +26,11 @@
       "desc": "منتج اتشال من الأوردر — بدون استرجاع مخزون"
     },
     "update": {
+      "tool": "metafields_change",
       "result": null,
       "stage": null,
-      "desc": "تحديث ميتافيلد S1 بعد حذف المنتج"
+      "desc": "تحديث ميتافيلد S1 بعد حذف المنتج — بيتكتب في السجل المشترك metafields_change، مش تحت tool الأداة"
     }
-  }
+  },
+  "dynamicTypes": []
 }
