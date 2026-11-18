@@ -1,7 +1,7 @@
 // ══════════════════════════════════════════════════════════════════
 // §HEADER
 // EcomModa — Order Item Remover Worker
-// Version: 1.5.0
+// Version: 1.5.1
 // Tier: 1 — Shopify order editing (removes an unfulfilled line item; irreversible
 //           in the sense that Shopify keeps no "undo" — the item can only be
 //           re-added manually afterward). Never restocks — mandatory S1/reason
@@ -9,6 +9,10 @@
 // Cloudflare Worker ES Module
 // skills: ecommoda-worker-builder v3.7.1 · shopify-graphql-helper v1.0.0 ·
 //         ecommoda-order-lifecycle v1.1.0 · ecommoda-constants v3.1.0 (24-09-2026)
+//
+// CHANGELOG v1.5.1:
+//   - 🟢 `search` و`sku` في get_logs* بقوا بيقبلوا **قيم متعددة بفاصلة (OR)** — توكنز فلتر النص
+//     في الواجهة (فلتر رأس العمود v8.6.0). قيمة واحدة بلا فاصلة = السلوك القديم بالحرف.
 //
 // CHANGELOG v1.5.0:
 //   - 🟢 تاب «سجل العمليات» على معيار html-builder الأحدث (فلاتر رأس العمود
@@ -55,7 +59,7 @@
 // ══════════════════════════════════════════════════════════════════
 // §CONSTANTS
 // ══════════════════════════════════════════════════════════════════
-const WORKER_VERSION = '1.5.0';
+const WORKER_VERSION = '1.5.1';
 const TOOL_NAME       = 'order_item_remover'; // ⚠️ REGISTER in ecommoda-constants §7
                                                 //    BEFORE first deploy — see README/handoff notes.
 const API_VERSION     = '2026-01';
@@ -327,11 +331,15 @@ function buildLogFilterSQL(select, {
   if (typs.length) {
     sql += ` AND type IN (${typs.map(() => '?').join(',')})`; b.push(...typs);
   }
-  if (search) {
-    sql += ' AND (order_name LIKE ? OR notes LIKE ?)';
-    b.push(`%${search}%`, `%${search}%`);
+  // search: قيمة أو أكتر بفاصلة = OR (كل توكن على رقم الأوردر أو الملاحظة)
+  const terms = String(search || '').split(',').map(s => s.trim()).filter(Boolean);
+  if (terms.length) {
+    sql += ` AND (${terms.map(() => '(order_name LIKE ? OR notes LIKE ?)').join(' OR ')})`;
+    terms.forEach(x => b.push(`%${x}%`, `%${x}%`));
   }
-  if (sku) { sql += ' AND sku LIKE ?'; b.push(`%${sku}%`); }
+  // sku: قيمة أو أكتر بفاصلة = OR
+  const skus = String(sku || '').split(',').map(s => s.trim()).filter(Boolean);
+  if (skus.length) { sql += ` AND (${skus.map(() => 'sku LIKE ?').join(' OR ')})`; b.push(...skus.map(s => `%${s}%`)); }
   // النتيجة: success/warning بيتقروا من extra.result على صف remove_item، و error = remove_failed
   // (الحالتين مسجّلتين في log-values.json — صفر type جديد).
   if (Array.isArray(results) && results.length) {
