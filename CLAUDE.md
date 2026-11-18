@@ -2,11 +2,11 @@
 
 > 🗑️ **18-11-2026 — الواجهة المستقلة (`index.html`) اتحذفت بقرار أحمد.** الريبو بقى **Worker فقط**، والواجهة الوحيدة `Order-Item-Remover.html` في `Warehouse-Operations-Center`. رابط GitHub Pages القديم بيدّي `404` **بلا إعادة توجيه**، ومفيش نقطة رجوع مستقلة. ⚠️ أي ذكر تحت لـ«الواجهة المستقلة» / `index.html` / «نقطة رجوع» / «مجمّدة» بيوصف الوضع **قبل الحذف** (تاريخي) — وأي تعديل واجهة بيتعمل في الهب بس.
 
-![version](https://img.shields.io/badge/version-v1.4.1-blue)
+![version](https://img.shields.io/badge/version-v1.5.1-blue)
 
 **بتعمل إيه:** حذف منتج واحد لسه Unfulfilled بالكامل من أوردر COD غير مسدد، بدل إلغاء الأوردر كله.
 **مين بيستخدمها:** خدمة العملاء / إدارة الأوردرات
-**الإصدار:** Worker `v1.4.1` · الواجهة `v1.4.0` · `MIN_WORKER_VERSION = 1.4.0`
+**الإصدار:** Worker `v1.5.1` · الواجهة (الهب) `v1.75.0` · `MIN_WORKER_VERSION = 1.4.0`
 
 ## الروابط
 
@@ -23,7 +23,7 @@
 | `lookup_order` | البحث عن أوردر بالاسم + جلب منتجاته Unfulfilled |
 | `remove_item` | حذف بند من الأوردر (Order Editing API — quantity → 0، بدون استرجاع مخزون أبدًا) + تحديث `custom.manual_status` (لو الانتقال مسموح) و`custom.cancel_manual_reason`. **من v1.4.0** بيعدّي على حارس §PREFLIGHT الأول — قيمة مرفوضة = `409` و**صفر كتابة** |
 | `check_employee` / `register_pin` / `verify_employee` / `log_logout` / `get_employees` | Universal D1 Auth |
-| `get_logs` / `get_logs_count` / `get_logs_export` | سجل العمليات — فلترة server-side بقوايم (`employees` · `types` CSV) + `dateFrom`/`dateTo`. التصدير بيرجّع `cap`/`total`/`truncated` |
+| `get_logs` / `get_logs_count` / `get_logs_export` | سجل العمليات — فلترة server-side بقوايم (`employees` · `types` · **`results`** CSV) + `search` + **`sku`** + `dateFrom`/`dateTo` + **`sortBy`/`sortDir`** (من v1.5.0 · `LOG_SORT_COLUMNS` بقايمة بيضا). التصدير بيرجّع `cap`/`total`/`truncated` |
 | `diag` | فحص ذاتي: OAuth · صلاحيات write_order_edits/read_order_edits · D1 · Origin |
 | `get_config` | نسخة الـ Worker (لمقارنتها بنسخة الواجهة) |
 
@@ -40,6 +40,10 @@ type  : remove_item · remove_failed · login · logout
 > `type = 'update'` (لو تحديث `custom.manual_status` اتنفذ فعليًا) — القيمتين
 > دول مسجَّلين بالفعل في `ecommoda-constants` §7 تحت "Metafields Change Log"،
 > مش خاصّين بالأداة دي.
+
+> 🟢 **v1.5.1:** `search` و`sku` في `get_logs*` بيقبلوا **قيم متعددة بفاصلة = OR** (توكنز فلتر النص في الواجهة). قيمة واحدة بلا فاصلة = السلوك القديم.
+
+> 🟢 **v1.5.0 (18-11-2026) — تاب السجل في الهب على المعيار الأحدث:** فلاتر `results` (`success|warning` من `extra.result` على `remove_item` · `error` = `remove_failed`) و`sku` والترتيب server-side. و`lookup_order` بيرجّع `productId`/`variantId` (`variant { id title product { id } }`) و`remove_item` بيكتبهم في `extra` صف السجل — الواجهة بتبني منهم لينك الـ variant من الـ SKU. الصفوف القديمة بلا المعرّفين = SKU نص عادي. `MIN_WORKER_VERSION` ما اترفعش (تدهور آمن). ⚠️ `product { id }` بيحتاج `read_products` على الـ Custom App المشترك (موجودة أصلاً لباقي الأدوات).
 
 > 🟢 **من v1.4.1: حارس الطبقة ٥ جوّه `writeLog`** (`ecommoda-worker-builder`
 > Step 7-ج). أي `(tool, type)` مش في `LOG_REGISTRY` بتتكتب عادي +
@@ -255,7 +259,7 @@ metafieldsSet: Value does not exist in provided choices: ["لا يرد نهائ�
 | ecommoda-order-lifecycle | v1.1.0 |
 | ecommoda-constants | v3.1.0 |
 
-آخر مطابقة: 24-09-2026 · `index.js` v1.4.1 · `index.html` v1.4.0
+آخر مطابقة: 18-11-2026 · `index.js` v1.5.1 · الواجهة في الهب v1.75.0
 🔴 معلّقة: — لا شيء
 
 ## مسائل مفتوحة

@@ -1,7 +1,7 @@
 // ══════════════════════════════════════════════════════════════════
 // §HEADER
 // EcomModa — Order Item Remover Worker
-// Version: 1.4.1
+// Version: 1.5.1
 // Tier: 1 — Shopify order editing (removes an unfulfilled line item; irreversible
 //           in the sense that Shopify keeps no "undo" — the item can only be
 //           re-added manually afterward). Never restocks — mandatory S1/reason
@@ -9,6 +9,20 @@
 // Cloudflare Worker ES Module
 // skills: ecommoda-worker-builder v3.7.1 · shopify-graphql-helper v1.0.0 ·
 //         ecommoda-order-lifecycle v1.1.0 · ecommoda-constants v3.1.0 (24-09-2026)
+//
+// CHANGELOG v1.5.1:
+//   - 🟢 `search` و`sku` في get_logs* بقوا بيقبلوا **قيم متعددة بفاصلة (OR)** — توكنز فلتر النص
+//     في الواجهة (فلتر رأس العمود v8.6.0). قيمة واحدة بلا فاصلة = السلوك القديم بالحرف.
+//
+// CHANGELOG v1.5.0:
+//   - 🟢 تاب «سجل العمليات» على معيار html-builder الأحدث (فلاتر رأس العمود
+//     server-side): `get_logs`/`get_logs_count`/`get_logs_export` بقوا بيقبلوا
+//     `results` (success|warning|error) و`sku` (بحث نصي) و`sortBy`/`sortDir`
+//     (قايمة بيضا — LOG_SORT_COLUMNS) جنب `employees`/`types`/`search`/`dateFrom`/`dateTo`.
+//   - 🟢 `lookup_order` بيرجّع `productId` و`variantId` (أرقام) لكل بند،
+//     و`remove_item` بيكتبهم في `extra` صف السجل — الواجهة بتبني منهم لينك
+//     صفحة الـ variant على شوبيفاي من SKU الجدول. الصفوف القديمة من غيرهم
+//     بتتعرض SKU نص عادي (تدهور آمن — فمفيش ترفيع MIN_WORKER_VERSION).
 //
 // CHANGELOG v1.4.1:
 //   - 🟢 الطبقة ٥ — الحارس الديناميكي لقيم اللوج (ecommoda-worker-builder
@@ -45,7 +59,7 @@
 // ══════════════════════════════════════════════════════════════════
 // §CONSTANTS
 // ══════════════════════════════════════════════════════════════════
-const WORKER_VERSION = '1.4.1';
+const WORKER_VERSION = '1.5.1';
 const TOOL_NAME       = 'order_item_remover'; // ⚠️ REGISTER in ecommoda-constants §7
                                                 //    BEFORE first deploy — see README/handoff notes.
 const API_VERSION     = '2026-01';
@@ -302,6 +316,7 @@ function buildLogFilterSQL(select, {
   type      = null, types     = null,
   search    = null,
   dateFrom  = null, dateTo    = null,
+  results   = null, sku       = null,
 } = {}) {
   let sql = `${select} FROM logs WHERE type NOT IN ('login','logout')`;
   const b = [];
@@ -316,9 +331,25 @@ function buildLogFilterSQL(select, {
   if (typs.length) {
     sql += ` AND type IN (${typs.map(() => '?').join(',')})`; b.push(...typs);
   }
-  if (search) {
-    sql += ' AND (order_name LIKE ? OR notes LIKE ?)';
-    b.push(`%${search}%`, `%${search}%`);
+  // search: قيمة أو أكتر بفاصلة = OR (كل توكن على رقم الأوردر أو الملاحظة)
+  const terms = String(search || '').split(',').map(s => s.trim()).filter(Boolean);
+  if (terms.length) {
+    sql += ` AND (${terms.map(() => '(order_name LIKE ? OR notes LIKE ?)').join(' OR ')})`;
+    terms.forEach(x => b.push(`%${x}%`, `%${x}%`));
+  }
+  // sku: قيمة أو أكتر بفاصلة = OR
+  const skus = String(sku || '').split(',').map(s => s.trim()).filter(Boolean);
+  if (skus.length) { sql += ` AND (${skus.map(() => 'sku LIKE ?').join(' OR ')})`; b.push(...skus.map(s => `%${s}%`)); }
+  // النتيجة: success/warning بيتقروا من extra.result على صف remove_item، و error = remove_failed
+  // (الحالتين مسجّلتين في log-values.json — صفر type جديد).
+  if (Array.isArray(results) && results.length) {
+    const parts = [];
+    for (const r of results) {
+      if (r === 'error')   parts.push(`type = 'remove_failed'`);
+      if (r === 'success') parts.push(`(type = 'remove_item' AND COALESCE(json_extract(extra, '$.result'), 'success') = 'success')`);
+      if (r === 'warning') parts.push(`(type = 'remove_item' AND json_extract(extra, '$.result') = 'warning')`);
+    }
+    if (parts.length) sql += ` AND (${parts.join(' OR ')})`;
   }
   if (dateFrom) { sql += ' AND substr(timestamp, 1, 10) >= ?'; b.push(dateFrom); }
   if (dateTo)   { sql += ' AND substr(timestamp, 1, 10) <= ?'; b.push(dateTo); }
@@ -331,9 +362,21 @@ function buildLogFilterSQL(select, {
  * Max limit per page: 100 (enforced server-side).
  * ⚠️ Do NOT use this for XLSX export — use getLogsExport() instead.
  */
-async function getLogs(db, { limit = 100, offset = 0, ...filters } = {}) {
+// ⚠️ الترتيب server-side (قايمة بيضا — مفتاح غريب بيتجاهل ويرجع للافتراضي).
+//    مفاتيح الواجهة لازم تطابق دي حرفيًا. `time` و`date` الاتنين من timestamp.
+const LOG_SORT_COLUMNS = {
+  date: 'timestamp', time: 'timestamp', employee: 'employee', orderName: 'order_name',
+  sku: 'sku', result: "CASE WHEN type = 'remove_failed' THEN 'error' ELSE COALESCE(json_extract(extra, '$.result'), 'success') END",
+};
+function logOrderBy(sortBy, sortDir) {
+  const col = LOG_SORT_COLUMNS[sortBy];
+  if (!col) return 'timestamp DESC';
+  return `${col} ${sortDir === 'asc' ? 'ASC' : 'DESC'}, timestamp DESC`;
+}
+
+async function getLogs(db, { limit = 100, offset = 0, sortBy = null, sortDir = null, ...filters } = {}) {
   const { sql, b } = buildLogFilterSQL('SELECT *', filters);
-  const q = sql + ' ORDER BY timestamp DESC LIMIT ? OFFSET ?';
+  const q = sql + ` ORDER BY ${logOrderBy(sortBy, sortDir)} LIMIT ? OFFSET ?`;
   return (await db.prepare(q)
     .bind(...b, Math.min(limit, 100), Math.max(offset, 0)).all()).results;
 }
@@ -353,9 +396,9 @@ async function getLogsCount(db, filters = {}) {
  * ⚠️ الدالة دي **بتقص في السكوت** بطبيعتها — الـ endpoint لازم يرجّع
  * `cap` و`total` و`truncated` كمان.
  */
-async function getLogsExport(db, filters = {}) {
+async function getLogsExport(db, { sortBy = null, sortDir = null, ...filters } = {}) {
   const { sql, b } = buildLogFilterSQL('SELECT *', filters);
-  const q = sql + ' ORDER BY timestamp DESC LIMIT ?';
+  const q = sql + ` ORDER BY ${logOrderBy(sortBy, sortDir)} LIMIT ?`;
   return (await db.prepare(q).bind(...b, LOG_EXPORT_MAX).all()).results;
 }
 
@@ -367,7 +410,7 @@ async function getLogsExport(db, filters = {}) {
 function logParamsFrom(url, tool) {
   const csv = (k) => (url.searchParams.get(k) || '')
     .split(',').map(s => s.trim()).filter(Boolean);
-  const employees = csv('employees'), types = csv('types');
+  const employees = csv('employees'), types = csv('types'), results = csv('results');
   return {
     tool,
     employees: employees.length ? employees : null,
@@ -377,6 +420,10 @@ function logParamsFrom(url, tool) {
     search:    url.searchParams.get('search')   || null,
     dateFrom:  url.searchParams.get('dateFrom') || null,
     dateTo:    url.searchParams.get('dateTo')   || null,
+    results:   results.length ? results : null,
+    sku:       url.searchParams.get('sku')      || null,
+    sortBy:    url.searchParams.get('sortBy')   || null,
+    sortDir:   url.searchParams.get('sortDir')  || null,
   };
 }
 
@@ -539,7 +586,7 @@ const ORDER_FIELDS = `
       requiresShipping
       originalUnitPriceSet { shopMoney { amount currencyCode } }
       image { url }
-      variant { id title }
+      variant { id title product { id } }
     }
   }
 `;
@@ -561,6 +608,8 @@ function mapLineItem(li) {
     unfulfilledQuantity: li.unfulfilledQuantity,
     unitPrice: moneyText(li.originalUnitPriceSet),
     variantTitle: li.variant?.title || '',
+    variantId: numericIdFromGid(li.variant?.id),
+    productId: numericIdFromGid(li.variant?.product?.id),
     imageUrl: li.image?.url || null,
     removable,
     reason,
@@ -900,6 +949,7 @@ async function handleRemoveItem(request, env) {
         notes: `تم حذف "${target.title}" من الأوردر — بدون استرجاع مخزون (معطّل دائمًا)`,
         extra: {
           orderGid: orderId, lineItemGid: lineItemId,
+          productId: target.productId || null, variantId: target.variantId || null,
           restock: false, notifyCustomer: !!notifyCustomer,
           actions: result.actions, calculatedOrderId: result.calculatedOrderId,
           result: status, statusUpdated: metaOutcome.statusUpdated, statusUpdateError: metaOutcome.error,
